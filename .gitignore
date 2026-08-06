@@ -1,0 +1,24 @@
+# Brainstorm/spec/plan/handoff docs tracked out-of-band (family convention).
+docs/
+.superpowers/
+
+# Build outputs / fetched inputs. Heavy build I/O defaults to a LOCAL disk
+# (~/.cache/mavericks-rust/work), OUTSIDE this repo — see build/versions.sh.
+/dist/
+/archives/
+/toolchains/
+/out/
+*.pkg
+*.tar.gz
+*.tar.xz
+
+# native-bootstrap/rust.sh's own scratch (it builds under repo-root/{build,archives,toolchains});
+# keep the committed build/*.sh, ignore only rust.sh's build/rust tree.
+/build/rust/
+
+# Full package version (<upstream>-mavericks.N). Workflow-written, never committed.
+/VERSION
+
+# macOS cruft (._* is what an NFS mount sprays when COPYFILE_DISABLE is unset)
+.DS_Store
+._*
