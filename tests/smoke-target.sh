@@ -11,20 +11,29 @@ RUSTC="$STAGE/bin/rustc"
 [ -x "$RUSTC" ] || { echo "not built -- skipping"; exit 77; }
 
 t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
-cat > "$t/hello.rs" <<'EOF'
+# Exercise BOTH 10.9 backfilled paths, not just one: HashMap::new() pulls std's entropy source
+# (CCRandomGenerateBytes, a 10.10 API we alias to arc4random_buf), SystemTime pulls clock_gettime, and
+# a thread pulls the pthread/runtime paths. A hello that only touched std::time would pass even if a
+# real user program failed to link HashMap — the gap this closes.
+cat > "$t/smoke.rs" <<'EOF'
+use std::collections::HashMap;
 use std::time::SystemTime;
 fn main() {
-    let now = SystemTime::now();
-    println!("hello mavericks {:?}", now);
+    let mut m = HashMap::new();
+    m.insert("mavericks", 109);                       // -> CCRandomGenerateBytes (HashMap seed)
+    let _ = SystemTime::now();                         // -> clock_gettime
+    let n = std::thread::spawn(|| 42).join().unwrap(); // -> pthread/runtime
+    println!("smoke {:?} {}", m.get("mavericks"), n);
 }
 EOF
 # The wrapper auto-links the polyfill because we pass --target x86_64-apple-darwin.
-"$RUSTC" --target "$TARGET_TRIPLE" "$t/hello.rs" -o "$t/hello"
-lipo -archs "$t/hello" | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
+"$RUSTC" --target "$TARGET_TRIPLE" "$t/smoke.rs" -o "$t/smoke"
+lipo -archs "$t/smoke" | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 
-# The compat guard: the emitted binary must be 10.9-safe. Because std uses clock_gettime and we link
-# the legacy-support shim that DEFINES it, require that symbol to be DEFINED (golang precedent).
-MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime' \
-  sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$t/hello"
+# The compat guard: the emitted binary must be 10.9-safe. Both post-10.9 APIs std references must be
+# DEFINED by the linked shim (golang precedent for clock_gettime; CCRandomGenerateBytes is ours). If
+# either shipped as an undefined import instead, the binary would crash on real 10.9 at first use.
+MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
+  sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
 
 echo "OK smoke-target"
