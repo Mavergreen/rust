@@ -26,6 +26,9 @@ echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first 
 SDK="$(sh "$MSC_SCRIPTS/fetch_sdk.sh")"
 mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
 
+echo "== backfill CCRandomGenerateBytes into the shim (and make MLS_VERSION authoritative) =="
+augment_shim "$POLY_A" "$CLANGDIR"
+
 echo "== configure bootstrap.toml =="
 write_bootstrap_toml "$SRC" "$CROSS_PREFIX" "$CLANGDIR"
 
@@ -35,8 +38,18 @@ echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via cl
 # x86_64/10.9 target and would shadow the host compiler for the arm64 host build. clang-22 is referenced
 # only by absolute path -- via [target.x86_64-apple-darwin] in bootstrap.toml and the CARGO_TARGET linker.
 # DESTDIR stages the install under $STAGE_ROOT so packaging can pick it up without root.
+# PKG_CONFIG_LIBDIR is the cargo-side counterpart of [llvm] CMAKE_IGNORE_PREFIX_PATH: cargo builds
+# bin/cargo on the HOST, and its *-sys crates (libgit2-sys, libz-sys, curl-sys) probe pkg-config. On a
+# pkgsrc box pkg-config is /opt/pkg's, whose default pc_path leads with /opt/pkg/lib/pkgconfig -- so
+# they found libgit2.pc/zlib.pc/libcurl.pc there and bin/cargo shipped hard dependencies on
+# /opt/pkg/lib/{libgit2,libz,libcurl,libiconv,libunwind}.dylib, which tests/relocatable-test.sh
+# rejects. Pointing LIBDIR at the system dir only (and clearing the additive PATH) makes libgit2/libz
+# build vendored and curl's force-system-lib-on-osx resolve /usr/lib/libcurl. The cmake guard does not
+# cover this: it constrains LLVM's CMake probes, not cargo's.
 ( cd "$SRC" && \
   DESTDIR="$STAGE_ROOT" \
+  PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig \
+  PKG_CONFIG_PATH= \
   CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
   python3 x.py install -j "$JOBS" --host aarch64-apple-darwin --target "aarch64-apple-darwin,$TARGET_TRIPLE" )
 

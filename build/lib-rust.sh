@@ -35,7 +35,13 @@ channel = "stable"
 [llvm]
 download-ci-llvm = false
 ninja = true
-targets = "X86"
+# BOTH backends, not just the 10.9 target's. X86 is what we cross-COMPILE FOR; AArch64 is what this
+# toolchain RUNS ON, and --host aarch64-apple-darwin means stage1/stage2 rustc must codegen for arm64
+# (its own std, build scripts, proc macros). Setting this key at all overrides bootstrap's default
+# target list, so omitting AArch64 silently drops it: llvm-config reported "X86 AVR M68k CSKY Xtensa"
+# and stage1 rustc ICE'd on --print=deployment-target with
+# "could not create LLVM TargetMachine for triple: arm64-apple-macosx11.0.0".
+targets = "AArch64;X86"
 # Keep pkgsrc /opt/pkg (and any other package-manager prefix) OUT of the LLVM build. On a pkgsrc box
 # cmake/ninja themselves come from /opt/pkg, and pkgsrc's cmake bakes /opt/pkg into find_library
 # results (libzstd/libxml2/libedit) -- which would ship as absolute paths and fail
@@ -53,11 +59,60 @@ linker = "$_clang/bin/clang++"
 EOF
 }
 
+# augment_shim <poly_a> <clangdir>
+# Add our 10.9 CCRandomGenerateBytes polyfill to the fetched legacy-support archive, then install that
+# archive as the one clang-22 auto-links. Two jobs, deliberately in one place:
+#
+#   1. std does not link for 10.9 without CCRandomGenerateBytes (10.10+; see build/polyfill-ccrandom.c).
+#      Adding it to the .a rather than passing a stray .o keeps ONE answer to "what backfills 10.9",
+#      and makes the eventual move upstream a deletion rather than a redesign.
+#   2. It makes MLS_VERSION actually authoritative. clang-22's .pkg bundles its OWN copy of the shim,
+#      and clang.cfg names that copy (<CFGDIR>/../lib/libMacportsLegacySupport.a) -- so until now the
+#      bundled copy, NOT the pinned one, is what every target link resolved against. The two are
+#      byte-identical today (sha256 3a9142ce78f87d25..., 43152 bytes), so this changes nothing
+#      immediately; it closes the drift hazard where bumping MLS_VERSION would silently have no
+#      effect on the toolchain we ship.
+#
+# Idempotent: fetch-legacy-support.sh rm -rf's and re-extracts a pristine .a each run, and `ar r`
+# replaces an existing member anyway. Compiling via clang-22 (not the host clang) is what makes the
+# object x86_64/10.9 -- its clang.cfg supplies the target, the min-version and the 10.9 SDK.
+augment_shim() {
+  _poly="$1"; _clang="$2"
+  _obj="$(dirname "$_poly")/polyfill-ccrandom.o"
+  "$_clang/bin/clang" -c -o "$_obj" "$REPO_ROOT/build/polyfill-ccrandom.c"
+  "$_clang/bin/llvm-ar" r "$_poly" "$_obj"
+  # Fail loudly here rather than 30 minutes later at the std link.
+  nm -g "$_poly" 2>/dev/null | grep -q ' T _CCRandomGenerateBytes$' \
+    || { echo "FATAL: polyfill did not define _CCRandomGenerateBytes in $_poly" >&2; exit 1; }
+  cp -f "$_poly" "$_clang/lib/libMacportsLegacySupport.a"
+}
+
 # wrap_rustc_cross <installed_prefix>
 # Bundle the polyfill into the toolchain and replace bin/rustc with a /bin/sh wrapper that adds the
 # 10.9 back-fill link-args ONLY when the invocation targets x86_64-apple-darwin. The real compiler
 # moves to rustc.bin. Idempotent (skips if bin/rustc is already the shell wrapper). The polyfill .a
 # must already be copied to <prefix>/lib/rustlib/<target>/lib/libMacportsLegacySupport.a.
+#
+# Two of the link-args are subtler than they look, and BOTH are required to cross-link on a modern
+# host. Naming the archive alone (the original form) is not enough:
+#
+#   -Wl,-force_load  A plain archive on the link line contributes only members that resolve a symbol
+#                    still undefined WHEN THE LINKER REACHES IT. rustc emits -lSystem *before* our
+#                    -C link-args, so on a modern host libSystem -- which HAS clock_gettime since
+#                    10.12 -- already satisfied it and the archive was never consulted: the symbol
+#                    stayed an UNDEFINED IMPORT of a function absent from real 10.9. (Building ON 10.9
+#                    hides this, because there libSystem genuinely lacks the symbol and the archive
+#                    does get pulled -- which is why the rule inherited from native-bootstrap/rust.sh
+#                    looked correct.) force_load pulls the members unconditionally, so they are
+#                    DEFINED in the output and the compat guard's REQUIRE_DEFINED check passes.
+#   -mmacosx-version-min  rustc hard-clamps x86_64-apple-darwin to a 10.12 deployment target
+#                    (os_minimum_deployment_target: MacOs => (10,12,0), then version.max(min) -- so
+#                    MACOSX_DEPLOYMENT_TARGET cannot lower it) and passes -mmacosx-version-min=10.12.0
+#                    to the linker driver. Ours lands after rustc's, and last wins, so the output gets
+#                    LC_VERSION_MIN_MACOSX 10.9 as assert_binary_compatible.sh requires.
+#
+# Both are plain link-args, so the wrapper stays relocatable and still needs no clang-22 and no
+# absolute path -- the property the design spec asks for.
 wrap_rustc_cross() {
   _p="$1"
   [ "$(head -c2 "$_p/bin/rustc" 2>/dev/null)" = '#!' ] && return 0
@@ -77,7 +132,8 @@ for a in "\$@"; do
 done
 if [ "\$wants" = 1 ] && [ -f "\$P" ]; then
   exec "\$S/rustc.bin" \\
-    -C link-arg="\$P" \\
+    -C link-arg=-Wl,-force_load,"\$P" \\
+    -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
     -C link-arg=-framework -C link-arg=CoreFoundation \\
     -C link-arg=-framework -C link-arg=Security \\
     -C link-arg=-lobjc "\$@"
