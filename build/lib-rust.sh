@@ -167,3 +167,79 @@ relocate_prefix() {
     otool -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
   done
 }
+
+# --- NATIVE variant (Plan 2): host==target==x86_64-apple-darwin, runs on real 10.9 -----------------
+
+# write_bootstrap_toml_native <src> <prefix> <clangdir>
+# Single-triple x86_64/10.9 build (run under Rosetta on an arm64 builder, or natively on 10.9). Unlike
+# the cross config, clang-22 is the CORRECT host compiler too (it defaults to x86_64/10.9), and no
+# AArch64 LLVM backend is needed (host==target==x86_64). No [build] rustc/cargo -> x.py downloads the
+# pinned x86_64 stage0 (Rosetta runs it). Same /opt/pkg guard as the cross build.
+write_bootstrap_toml_native() {
+  _src="$1"; _prefix="$2"; _clang="$3"; _py="$(command -v python3 || echo /usr/local/bin/python3)"
+  cat > "$_src/bootstrap.toml" <<EOF
+[build]
+build = "x86_64-apple-darwin"
+host = ["x86_64-apple-darwin"]
+target = ["x86_64-apple-darwin"]
+python = "$_py"
+docs = false
+extended = true
+tools = ["cargo", "rustdoc"]
+submodules = false
+vendor = true
+sanitizers = false
+profiler = false
+
+[build.tool.cargo]
+features = ["vendored-openssl", "curl/force-system-lib-on-osx"]
+
+[install]
+prefix = "$_prefix"
+sysconfdir = "etc"
+
+[rust]
+channel = "stable"
+
+[llvm]
+download-ci-llvm = false
+ninja = true
+targets = "X86"
+libzstd = false
+build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
+
+[target.x86_64-apple-darwin]
+cc = "$_clang/bin/clang"
+cxx = "$_clang/bin/clang++"
+ar = "$_clang/bin/llvm-ar"
+ranlib = "$_clang/bin/llvm-ranlib"
+linker = "$_clang/bin/clang++"
+EOF
+}
+
+# wrap_rustc_native <installed_prefix>
+# The native variant's only target IS its host (x86_64/10.9), so EVERY link is the 10.9 target -- auto
+# force_load the polyfill and clamp min-version UNCONDITIONALLY (the cross wrapper gates on --target
+# because it also builds arm64 host artifacts; native has no other target). Same force_load + min-version
+# reasoning as wrap_rustc_cross. Idempotent.
+wrap_rustc_native() {
+  _p="$1"
+  [ "$(head -c2 "$_p/bin/rustc" 2>/dev/null)" = '#!' ] && return 0
+  mv "$_p/bin/rustc" "$_p/bin/rustc.bin"
+  cat > "$_p/bin/rustc" <<EOF
+#!/bin/sh
+# Native 10.9 rustc: host==target==x86_64/10.9, so link the 10.9 back-fill polyfill on every link.
+S="\$(cd "\$(dirname "\$0")" >/dev/null 2>&1 && pwd)"
+P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
+if [ -f "\$P" ]; then
+  exec "\$S/rustc.bin" \\
+    -C link-arg=-Wl,-force_load,"\$P" \\
+    -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
+    -C link-arg=-framework -C link-arg=CoreFoundation \\
+    -C link-arg=-framework -C link-arg=Security \\
+    -C link-arg=-lobjc "\$@"
+fi
+exec "\$S/rustc.bin" "\$@"
+EOF
+  chmod +x "$_p/bin/rustc"
+}
