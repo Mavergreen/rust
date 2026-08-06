@@ -27,7 +27,10 @@ got="$(shasum -a 256 "$pkg" | awk '{print $1}')"
 exp="$CACHE/expanded-$TAG"; rm -rf "$exp"
 pkgutil --expand-full "$pkg" "$exp" 1>&2
 # The cross toolchain installs at /usr/local/mavericks-clang-<line>-cross; find its bin/clang in the payload.
-clangbin="$(find "$exp" -type f -path '*/bin/clang' | head -1)"
+# Match a symlink too, not just a regular file: `pkgutil --expand-full` recreates bin/clang as a link to
+# clang-22 (as the release ships it), so a bare -type f finds nothing and the guard below misfires. The
+# -o form still handles a release that ships bin/clang as a real binary; -type l alone would not.
+clangbin="$(find "$exp" \( -type f -o -type l \) -path '*/bin/clang' | head -1)"
 [ -n "$clangbin" ] || { echo "FATAL: bin/clang not found in clang pkg payload" >&2; exit 1; }
 prefix="$(cd "$(dirname "$clangbin")/.." && pwd)"
 rm -rf "$OUT"; mkdir -p "$(dirname "$OUT")"; cp -R "$prefix" "$OUT"
