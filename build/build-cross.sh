@@ -20,17 +20,24 @@ CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
 POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 
+echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first use) =="
+# clang-22 targets x86_64-apple-macos10.9 via clang.cfg -> <bin>/../SDKs/MacOSX10.9.sdk, but its .pkg
+# ships an EMPTY SDKs/ (Apple's SDK is not redistributed). fetch_sdk.sh honors the machine's cached SDK.
+SDK="$(sh "$MSC_SCRIPTS/fetch_sdk.sh")"
+mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
+
 echo "== configure bootstrap.toml =="
 write_bootstrap_toml "$SRC" "$CROSS_PREFIX" "$CLANGDIR"
 
-echo "== x.py install (host arm64, target $TARGET_TRIPLE; LLVM from source via clang-22) =="
-# cmake>=3.20 + ninja must be on PATH for the LLVM build. clang-22 first so its cc/linker win.
+echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via clang-22; LLVM from source) =="
+# cmake + ninja come from PATH (pkgsrc /opt/pkg on this box) for the LLVM build; the /opt/pkg leak is
+# guarded in bootstrap.toml's [llvm] build-config. Do NOT put clang-22 first on PATH: it defaults to an
+# x86_64/10.9 target and would shadow the host compiler for the arm64 host build. clang-22 is referenced
+# only by absolute path -- via [target.x86_64-apple-darwin] in bootstrap.toml and the CARGO_TARGET linker.
 # DESTDIR stages the install under $STAGE_ROOT so packaging can pick it up without root.
 ( cd "$SRC" && \
-  PATH="$CLANGDIR/bin:$PATH" \
   DESTDIR="$STAGE_ROOT" \
   CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
-  MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
   python3 x.py install -j "$JOBS" --host aarch64-apple-darwin --target "aarch64-apple-darwin,$TARGET_TRIPLE" )
 
 [ -x "$STAGE/bin/rustc" ] || { echo "FATAL: x.py install did not produce $STAGE/bin/rustc" >&2; exit 1; }

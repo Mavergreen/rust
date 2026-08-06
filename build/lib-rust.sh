@@ -36,6 +36,13 @@ channel = "stable"
 download-ci-llvm = false
 ninja = true
 targets = "X86"
+# Keep pkgsrc /opt/pkg (and any other package-manager prefix) OUT of the LLVM build. On a pkgsrc box
+# cmake/ninja themselves come from /opt/pkg, and pkgsrc's cmake bakes /opt/pkg into find_library
+# results (libzstd/libxml2/libedit) -- which would ship as absolute paths and fail
+# tests/relocatable-test.sh. Mirror mavericks-clang's cross build (CMAKE_IGNORE_PREFIX_PATH + the
+# optional deps OFF). libzstd is rust bootstrap's own knob; the rest go through build-config.
+libzstd = false
+build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
 
 [target.$TARGET_TRIPLE]
 cc = "$_clang/bin/clang"

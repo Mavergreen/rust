@@ -25,6 +25,24 @@ Verified against `static.rust-lang.org`'s published `.sha256` for the pinned ver
 publishes checksums → no hand-maintained hash; a Renovate bump only moves the ref). Fail closed if the
 `.sha256` is absent.
 
+## Build-time tools: cmake + ninja (and the intended migration)
+
+The cross build needs `cmake` (≥3.20) and `ninja` to build Rust's bundled LLVM from source. These are
+**build-time tools**, not baked into the shipped `.pkg`, so they are not tracked as artifact
+ingredients — matching the sibling `mavericks-clang`, which also builds LLVM from source.
+
+Today they come from whatever the runner provides. On the current Tahoe builder that is **pkgsrc
+`/opt/pkg`**. A pkgsrc `cmake` bakes `/opt/pkg` into `find_library` results (libzstd/libxml2/libedit),
+which would ship as absolute paths and fail `tests/relocatable-test.sh`; the build guards against this
+in `build/lib-rust.sh`'s `[llvm] build-config` (`CMAKE_IGNORE_PREFIX_PATH=/opt/pkg;…` + those optional
+deps `OFF` + `libzstd = false`), exactly as clang's cross build does.
+
+**Intended direction:** the family plans its own `mavericks-ninja` (checkout exists, not yet released)
+and `mavericks-cmake` (not started) products. When those ship, this repo — and clang — should consume
+them as pinned, Renovate-tracked ingredients (like `components/clang/version`), and the
+`CMAKE_IGNORE_PREFIX_PATH` guard becomes defense-in-depth rather than load-bearing. Recorded here so the
+switch is a tracked decision, not a silent one.
+
 ## Deferred to later plans
 
 - **Native variant** (Plan 2): the x86_64/10.9 toolchain via Rosetta on the arm64 runner, with
