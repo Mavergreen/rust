@@ -44,16 +44,16 @@ export CROSS_PREFIX="/usr/local/mavericks-rust-cross"
 export NATIVE_IDENTIFIER="dev.modernmavericks.rust.rust"
 export CROSS_IDENTIFIER="dev.modernmavericks.rust.rust-cross"
 
-# shared-cmake scripts dir for shell callers (SDK fetch, compat guard, productbuild, build-info).
+# shipyard scripts dir for shell callers (SDK fetch, compat guard, productbuild, build-info).
 # Resolve in the family's usual order: override -> user package registry -> sibling checkout.
 _mav_shared_scripts() {
   if [ -n "${MAVERICKS_SHARED_SCRIPTS:-}" ] && [ -d "$MAVERICKS_SHARED_SCRIPTS" ]; then
     printf '%s\n' "$MAVERICKS_SHARED_SCRIPTS"; return 0; fi
-  for _r in "$HOME/.cmake/packages/MavericksSharedCMake/"*; do
+  for _r in "$HOME/.cmake/packages/MavericksShipyard/"*; do
     [ -f "$_r" ] || continue; _d="$(cat "$_r")/scripts"
     [ -d "$_d" ] && { printf '%s\n' "$_d"; return 0; }; done
-  [ -d "$REPO_ROOT/../mavericks-shared-cmake/scripts" ] && \
-    { printf '%s\n' "$REPO_ROOT/../mavericks-shared-cmake/scripts"; return 0; }
+  [ -d "$REPO_ROOT/../mavericks-shipyard/scripts" ] && \
+    { printf '%s\n' "$REPO_ROOT/../mavericks-shipyard/scripts"; return 0; }
   return 1
 }
-MSC_SCRIPTS="$(_mav_shared_scripts || true)"; export MSC_SCRIPTS
+SHIPYARD_SCRIPTS="$(_mav_shared_scripts || true)"; export SHIPYARD_SCRIPTS

@@ -6,7 +6,7 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 . "$HERE/lib-rust.sh"
-: "${MSC_SCRIPTS:?need shared-cmake}"
+: "${SHIPYARD_SCRIPTS:?need shipyard}"
 export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
 STAGE_ROOT="$WORK/stage"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
@@ -23,7 +23,7 @@ SRC="$(sh "$HERE/fetch-rust-src.sh")"
 echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first use) =="
 # clang-22 targets x86_64-apple-macos10.9 via clang.cfg -> <bin>/../SDKs/MacOSX10.9.sdk, but its .pkg
 # ships an EMPTY SDKs/ (Apple's SDK is not redistributed). fetch_sdk.sh honors the machine's cached SDK.
-SDK="$(sh "$MSC_SCRIPTS/fetch_sdk.sh")"
+SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"
 mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
 
 echo "== backfill CCRandomGenerateBytes into the shim (and make MLS_VERSION authoritative) =="

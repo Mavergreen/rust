@@ -5,7 +5,7 @@
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
-: "${MSC_SCRIPTS:?need shared-cmake}"
+: "${SHIPYARD_SCRIPTS:?need shipyard}"
 STAGE="$WORK/stage$CROSS_PREFIX"
 RUSTC="$STAGE/bin/rustc"
 [ -x "$RUSTC" ] || { echo "not built -- skipping"; exit 77; }
@@ -34,6 +34,6 @@ lipo -archs "$t/smoke" | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 # DEFINED by the linked shim (golang precedent for clock_gettime; CCRandomGenerateBytes is ours). If
 # either shipped as an undefined import instead, the binary would crash on real 10.9 at first use.
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
-  sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
+  sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
 
 echo "OK smoke-target"

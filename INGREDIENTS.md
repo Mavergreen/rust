@@ -8,7 +8,7 @@ The *own upstream* is Rust; an ingredient is anything else the artifact is built
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ⏳ Plan 3: `github-tags` on `rust-lang/rust` | tag-only publish cuts `<ver>-mavericks.1` |
 | clang-22 cross toolchain | `components/clang/version` | ⏳ Plan 3: `github-releases` on `ModernMavericks/clang` | repackage → `-mavericks.(N+1)` |
 | macports-legacy-support shim (prebuilt) | `MLS_VERSION # mavericks-legacysupport` in `build/versions.sh` | ⏳ Plan 3: shared preset marker customManager | repackage |
-| MacOSX10.9 SDK | `shared-cmake@v1` (`fetch_sdk.sh`, used by the compat-guard smoke) | ✅ github-actions tracks the `@v1` tag | moving tag |
+| MacOSX10.9 SDK | `shipyard@v1` (`fetch_sdk.sh`, used by the compat-guard smoke) | ✅ github-actions tracks the `@v1` tag | moving tag |
 
 Not ingredients: `build/*.sh` and `native-bootstrap/rust.sh` are this repo's own recipe — a change
 there is a deliberate `local_release` repackage, not Renovate-driven.

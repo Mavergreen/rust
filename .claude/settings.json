@@ -1,2 +1,2 @@
-{"extraKnownMarketplaces": {"modernmavericks": {"source": {"source": "github", "repo": "ModernMavericks/shared-cmake"}}},
+{"extraKnownMarketplaces": {"modernmavericks": {"source": {"source": "github", "repo": "ModernMavericks/shipyard"}}},
  "enabledPlugins": {"modernmavericks@modernmavericks": true}}

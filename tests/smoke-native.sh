@@ -7,7 +7,7 @@
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
-: "${MSC_SCRIPTS:?need shared-cmake}"
+: "${SHIPYARD_SCRIPTS:?need shipyard}"
 STAGE="$WORK/stage-native$NATIVE_PREFIX"
 RUSTC="$STAGE/bin/rustc"
 [ -x "$RUSTC" ] || { echo "not built -- skipping"; exit 77; }
@@ -29,7 +29,7 @@ EOF
 lipo -info "$t/smoke" 2>/dev/null | grep -q x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
-  sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
+  sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
 
 # If we're on genuine 10.9 (x86_64), also RUN it -- the flagship proof the native variant exists for.
 if [ "$(uname -m)" = x86_64 ] && [ "$(sw_vers -productVersion 2>/dev/null | cut -d. -f1,2)" = 10.9 ]; then

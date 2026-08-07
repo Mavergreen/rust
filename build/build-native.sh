@@ -12,7 +12,7 @@
 # brief's fallback is `arch -x86_64` with a universal python (/usr/bin/python3).
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"
-: "${MSC_SCRIPTS:?need shared-cmake}"; export COPYFILE_DISABLE=1
+: "${SHIPYARD_SCRIPTS:?need shipyard}"; export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
 NATIVE_STAGE_ROOT="$WORK/stage-native"; STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
 
@@ -22,7 +22,7 @@ fi
 
 echo "== fetch/prepare inputs (reused from Plan 1 where cached) =="
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
-SDK="$(sh "$MSC_SCRIPTS/fetch_sdk.sh")"; mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
+SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
 POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 augment_shim "$POLY_A" "$CLANGDIR"        # same CCRandomGenerateBytes backfill as the cross build
@@ -59,7 +59,7 @@ echo "== guard the staged compiler binary (x86_64, min-10.9, NO post-10.9 undefi
 # left as UNDEFINED imports. Anything it flags is a symbol the polyfill/shim must also back-fill for the
 # NATIVE compiler to run on 10.9 (native-bootstrap/rust.sh's polyfill covered os_unfair_lock et al. --
 # that set is the reference for what the native variant may still need beyond the cross build's).
-sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
+sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
 
 echo "== relocatability sweep of the WHOLE native prefix (catches e.g. a pkgsrc-leaking bin/cargo) =="
 # rustc.bin alone is not enough: run #3 shipped a bin/cargo linking /opt/pkg that the single-binary
