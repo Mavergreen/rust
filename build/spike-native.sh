@@ -27,11 +27,14 @@ POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 augment_shim "$POLY_A" "$CLANGDIR"        # same CCRandomGenerateBytes backfill as the cross build
 
-echo "== configure bootstrap.toml (native x86_64/10.9) =="
-write_bootstrap_toml_native "$SRC" "$NATIVE_PREFIX" "$CLANGDIR"
+echo "== configure bootstrap.toml (native x86_64/10.9; CMake pinned to the 10.9 SDK) =="
+write_bootstrap_toml_native "$SRC" "$NATIVE_PREFIX" "$CLANGDIR" "$SDK"
 
 echo "== x.py install (build==host==target x86_64-apple-darwin; x86_64 stages run under Rosetta) =="
+# MACOSX_DEPLOYMENT_TARGET=10.9 is CORRECT here (host IS 10.9) -- counters the cc crate's host-derived
+# -mmacosx-version-min for Rust's C deps. (Cross dropped it because there the host was arm64/modern.)
 ( cd "$SRC" && DESTDIR="$NATIVE_STAGE_ROOT" \
+    MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
     CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
     python3 x.py install -j "$JOBS" )
 

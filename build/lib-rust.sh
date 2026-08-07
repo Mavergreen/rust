@@ -176,7 +176,7 @@ relocate_prefix() {
 # AArch64 LLVM backend is needed (host==target==x86_64). No [build] rustc/cargo -> x.py downloads the
 # pinned x86_64 stage0 (Rosetta runs it). Same /opt/pkg guard as the cross build.
 write_bootstrap_toml_native() {
-  _src="$1"; _prefix="$2"; _clang="$3"; _py="$(command -v python3 || echo /usr/local/bin/python3)"
+  _src="$1"; _prefix="$2"; _clang="$3"; _sdk="$4"; _py="$(command -v python3 || echo /usr/local/bin/python3)"
   cat > "$_src/bootstrap.toml" <<EOF
 [build]
 build = "x86_64-apple-darwin"
@@ -206,7 +206,13 @@ download-ci-llvm = false
 ninja = true
 targets = "X86"
 libzstd = false
-build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
+# CMAKE_OSX_SYSROOT is load-bearing for the NATIVE build: clang-22's 10.9 -isysroot lives inside its
+# clang.cfg, which CMake cannot see, so find_package(ZLIB/Backtrace) otherwise searches the HOST macOS
+# SDK and injects its C headers as -isystem AHEAD of clang-22's libc++ (breaking <cstddef>). Pointing
+# CMake at the pinned 10.9 SDK makes every probe resolve against 10.9 in one move. DEPLOYMENT_TARGET
+# counters the cc crate's host-derived -mmacosx-version-min (would be the runner's OS, e.g. 26.5). The
+# IGNORE_PREFIX_PATH + optional-deps-OFF guard is the same /opt/pkg leak guard as the cross build.
+build-config = { CMAKE_OSX_SYSROOT = "$_sdk", CMAKE_OSX_DEPLOYMENT_TARGET = "$MACOS_MIN", CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
 
 [target.x86_64-apple-darwin]
 cc = "$_clang/bin/clang"
