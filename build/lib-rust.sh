@@ -60,30 +60,33 @@ EOF
 }
 
 # augment_shim <poly_a> <clangdir>
-# Add our 10.9 CCRandomGenerateBytes polyfill to the fetched legacy-support archive, then install that
-# archive as the one clang-22 auto-links. Two jobs, deliberately in one place:
+# Compile EVERY build/polyfill-*.c into the fetched legacy-support archive, then install that archive as
+# the one clang-22 auto-links. Each polyfill-*.c back-fills 10.9-missing symbols the family authors
+# itself (ccrandom: std's entropy source; dispatch: dispatch2 symbols ctrlc links but never calls). Two
+# jobs, deliberately in one place:
 #
-#   1. std does not link for 10.9 without CCRandomGenerateBytes (10.10+; see build/polyfill-ccrandom.c).
-#      Adding it to the .a rather than passing a stray .o keeps ONE answer to "what backfills 10.9",
-#      and makes the eventual move upstream a deletion rather than a redesign.
-#   2. It makes MLS_VERSION actually authoritative. clang-22's .pkg bundles its OWN copy of the shim,
-#      and clang.cfg names that copy (<CFGDIR>/../lib/libMacportsLegacySupport.a) -- so until now the
-#      bundled copy, NOT the pinned one, is what every target link resolved against. The two are
-#      byte-identical today (sha256 3a9142ce78f87d25..., 43152 bytes), so this changes nothing
-#      immediately; it closes the drift hazard where bumping MLS_VERSION would silently have no
-#      effect on the toolchain we ship.
+#   1. std/rustc do not link for 10.9 without these (see each build/polyfill-*.c header). Adding them to
+#      the .a rather than passing stray .o's keeps ONE answer to "what backfills 10.9", and makes the
+#      eventual move to mavericks-compat a deletion rather than a redesign.
+#   2. It makes MLS_VERSION authoritative. clang-22's .pkg bundles its OWN shim copy, and clang.cfg names
+#      that copy (<CFGDIR>/../lib/libMacportsLegacySupport.a) -- so without this, the bundled copy (not
+#      the pinned one) is what every target link resolves against. Overwriting it closes that drift.
 #
-# Idempotent: fetch-legacy-support.sh rm -rf's and re-extracts a pristine .a each run, and `ar r`
-# replaces an existing member anyway. Compiling via clang-22 (not the host clang) is what makes the
-# object x86_64/10.9 -- its clang.cfg supplies the target, the min-version and the 10.9 SDK.
+# Adding a new back-fill = drop a new build/polyfill-*.c; no code change here. Idempotent:
+# fetch-legacy-support.sh re-extracts a pristine .a each run and `ar r` replaces members. Compiling via
+# clang-22 (not the host clang) is what makes each object x86_64/10.9 (its clang.cfg supplies target,
+# min-version, SDK). Fails loudly BEFORE a ~50-min build's link if a load-bearing symbol is missing.
 augment_shim() {
   _poly="$1"; _clang="$2"
-  _obj="$(dirname "$_poly")/polyfill-ccrandom.o"
-  "$_clang/bin/clang" -c -o "$_obj" "$REPO_ROOT/build/polyfill-ccrandom.c"
-  "$_clang/bin/llvm-ar" r "$_poly" "$_obj"
-  # Fail loudly here rather than 30 minutes later at the std link.
-  nm -g "$_poly" 2>/dev/null | grep -q ' T _CCRandomGenerateBytes$' \
-    || { echo "FATAL: polyfill did not define _CCRandomGenerateBytes in $_poly" >&2; exit 1; }
+  for _src in "$REPO_ROOT"/build/polyfill-*.c; do
+    _obj="$(dirname "$_poly")/$(basename "$_src" .c).o"
+    "$_clang/bin/clang" -c -o "$_obj" "$_src"
+    "$_clang/bin/llvm-ar" r "$_poly" "$_obj"
+  done
+  for _sym in _CCRandomGenerateBytes _dispatch_workloop_create; do
+    nm -g "$_poly" 2>/dev/null | grep -q " T $_sym\$" \
+      || { echo "FATAL: polyfill did not define $_sym in $_poly" >&2; exit 1; }
+  done
   cp -f "$_poly" "$_clang/lib/libMacportsLegacySupport.a"
 }
 
