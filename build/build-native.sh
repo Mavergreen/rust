@@ -1,8 +1,8 @@
 #!/bin/sh
-# SPIKE (Plan 2, Phase A): build an x86_64/10.9 NATIVE rustc via Rosetta on an arm64 builder. Success =
-# a stage2 x86_64 rustc that passes the compat guard and whose output runs on real 10.9. Reuses Plan 1's
-# fetched inputs under $WORK. This is a spike: if it can't produce a sound stage2, the Plan 2 decision
-# gate falls back to native-bootstrap/rust.sh on the real 10.9 box. Do NOT relax any gate to force green.
+# Build the NATIVE mavericks-rust toolchain: an x86_64/10.9 rustc+cargo that RUNS on real Mac OS X 10.9.
+# On the arm64 CI runner it builds under Rosetta (proven by the Plan 2 spike: a full x86_64 stage2
+# bootstraps emulated, and rustc.bin passes the 10.9 compat guard); on a real 10.9 box it builds
+# natively. Staged under $WORK/stage-native via DESTDIR. Reuses Plan 1's fetched inputs under $WORK.
 #
 # Rosetta model: we set [build] build = x86_64-apple-darwin. x.py (arm64 python) downloads the pinned
 # x86_64 stage0 and, when it EXECUTES the x86_64 stage0/1/2 rustc, macOS runs them under Rosetta
@@ -43,7 +43,7 @@ echo "== x.py install (build==host==target x86_64-apple-darwin; x86_64 stages ru
     CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
     python3 x.py install -j "$JOBS" )
 
-[ -x "$STAGE/bin/rustc" ] || { echo "SPIKE FAIL: no native rustc at $STAGE/bin/rustc" >&2; exit 1; }
+[ -x "$STAGE/bin/rustc" ] || { echo "FATAL: x.py install did not produce $STAGE/bin/rustc" >&2; exit 1; }
 
 echo "== bundle polyfill + wrap rustc (unconditional; native target IS 10.9) =="
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
