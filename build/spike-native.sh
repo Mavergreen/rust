@@ -33,8 +33,13 @@ write_bootstrap_toml_native "$SRC" "$NATIVE_PREFIX" "$CLANGDIR" "$SDK"
 echo "== x.py install (build==host==target x86_64-apple-darwin; x86_64 stages run under Rosetta) =="
 # MACOSX_DEPLOYMENT_TARGET=10.9 is CORRECT here (host IS 10.9) -- counters the cc crate's host-derived
 # -mmacosx-version-min for Rust's C deps. (Cross dropped it because there the host was arm64/modern.)
+# PKG_CONFIG_LIBDIR/_PATH: same guard as build-cross.sh -- cargo's *-sys crates probe pkgsrc pkg-config
+# (pc_path leads with /opt/pkg/lib/pkgconfig) and otherwise bake /opt/pkg dylibs into bin/cargo (which
+# then can't even launch). Point at the system dir only; libgit2/libz vendor, curl resolves /usr/lib.
 ( cd "$SRC" && DESTDIR="$NATIVE_STAGE_ROOT" \
     MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
+    PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig \
+    PKG_CONFIG_PATH= \
     CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
     python3 x.py install -j "$JOBS" )
 
@@ -55,6 +60,11 @@ echo "== guard the staged compiler binary (x86_64, min-10.9, NO post-10.9 undefi
 # NATIVE compiler to run on 10.9 (native-bootstrap/rust.sh's polyfill covered os_unfair_lock et al. --
 # that set is the reference for what the native variant may still need beyond the cross build's).
 sh "$MSC_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
+
+echo "== relocatability sweep of the WHOLE native prefix (catches e.g. a pkgsrc-leaking bin/cargo) =="
+# rustc.bin alone is not enough: run #3 shipped a bin/cargo linking /opt/pkg that the single-binary
+# guard never saw. Audit all of bin/ + lib/, exactly like the cross path's tests/relocatable-test.sh.
+sh "$HERE/verify-relocatable.sh" "$STAGE"
 
 echo ">> native staged at $STAGE"
 "$STAGE/bin/rustc" --version   # runs under Rosetta on the arm64 builder
