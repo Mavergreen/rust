@@ -10,7 +10,7 @@ STAGE="$WORK/stage$CROSS_PREFIX"
 RUSTC="$STAGE/bin/rustc"
 [ -x "$RUSTC" ] || { echo "not built -- skipping"; exit 77; }
 
-t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
+t="$(mktemp -d "${TMPDIR:-/tmp}/smoke-target.XXXXXX")"; trap 'rm -rf "$t"' EXIT   # template: 10.9 BSD mktemp requires one
 # Exercise BOTH 10.9 backfilled paths, not just one: HashMap::new() pulls std's entropy source
 # (CCRandomGenerateBytes, a 10.10 API we alias to arc4random_buf), SystemTime pulls clock_gettime, and
 # a thread pulls the pthread/runtime paths. A hello that only touched std::time would pass even if a
@@ -28,7 +28,7 @@ fn main() {
 EOF
 # The wrapper auto-links the polyfill because we pass --target x86_64-apple-darwin.
 "$RUSTC" --target "$TARGET_TRIPLE" "$t/smoke.rs" -o "$t/smoke"
-lipo -archs "$t/smoke" | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
+lipo -info "$t/smoke" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 
 # The compat guard: the emitted binary must be 10.9-safe. Both post-10.9 APIs std references must be
 # DEFINED by the linked shim (golang precedent for clock_gettime; CCRandomGenerateBytes is ours). If
