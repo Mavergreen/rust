@@ -6,7 +6,7 @@ The *own upstream* is Rust; an ingredient is anything else the artifact is built
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ⏳ Plan 3: `github-tags` on `rust-lang/rust` | tag-only publish cuts `<ver>-mavericks.1` |
-| clang-22 cross toolchain | `components/clang/version` | ⏳ Plan 3: `github-releases` on `ModernMavericks/clang` | repackage → `-mavericks.(N+1)` |
+| clang-22 cross toolchain | `components/clang/version` | ⏳ Plan 3: `github-releases` on `Mavergreen/clang` | repackage → `-mavericks.(N+1)` |
 | macports-legacy-support shim (prebuilt) | `MLS_VERSION # mavericks-legacysupport` in `build/versions.sh` | ⏳ Plan 3: shared preset marker customManager | repackage |
 | MacOSX10.9 SDK | `shipyard@v1` (`fetch_sdk.sh`, used by the compat-guard smoke) | ✅ github-actions tracks the `@v1` tag | moving tag |
 

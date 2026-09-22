@@ -1,13 +1,13 @@
 #!/bin/sh
 # Fetch the prebuilt clang-22 CROSS toolchain (arm64, targets x86_64-apple-macos10.9) from the pinned
-# ModernMavericks/clang release. Integrity re-checked against the release's SHA256SUMS EVERY run.
+# Mavergreen/clang release. Integrity re-checked against the release's SHA256SUMS EVERY run.
 # Prints the path of the extracted toolchain prefix (contains bin/clang) on stdout; logs to stderr.
 set -eu
 . "$(cd "$(dirname "$0")" && pwd)/versions.sh"
 TAG="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")"
 [ -n "$TAG" ] || { echo "FATAL: empty components/clang/version" >&2; exit 1; }
 LINE="${TAG%%.*}"                                  # 22 from 22.1.1-mavericks.1
-base="https://github.com/ModernMavericks/clang/releases/download/$TAG"
+base="https://github.com/Mavergreen/clang/releases/download/$TAG"
 CACHE="$WORK/clang-dl"; OUT="$WORK/clang-$TAG"
 mkdir -p "$CACHE"
 sums="$CACHE/SHA256SUMS-$TAG"
