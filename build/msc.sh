@@ -4,6 +4,6 @@
 # This is the only per-repo part of the version scaffolding; the logic itself lives in shipyard.
 SHIPYARD="${SHIPYARD_SCRIPTS:-}"
 [ -d "$SHIPYARD" ] || SHIPYARD="$(cat "$HOME/.cmake/packages/MavericksShipyard/"* 2>/dev/null | head -1)/scripts"
-[ -d "$SHIPYARD" ] || SHIPYARD="$(cd "$(dirname "$0")/.." && pwd)/../mavericks-shipyard/scripts"
+[ -d "$SHIPYARD" ] || SHIPYARD="$(cd "$(dirname "$0")/.." && pwd)/../mavergreen-shipyard/scripts"
 [ -d "$SHIPYARD" ] || { echo "cannot locate mavericks-shipyard scripts (install it, or set SHIPYARD_SCRIPTS)" >&2; return 1 2>/dev/null || exit 1; }
 export SHIPYARD

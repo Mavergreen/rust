@@ -52,8 +52,8 @@ _mav_shared_scripts() {
   for _r in "$HOME/.cmake/packages/MavericksShipyard/"*; do
     [ -f "$_r" ] || continue; _d="$(cat "$_r")/scripts"
     [ -d "$_d" ] && { printf '%s\n' "$_d"; return 0; }; done
-  [ -d "$REPO_ROOT/../mavericks-shipyard/scripts" ] && \
-    { printf '%s\n' "$REPO_ROOT/../mavericks-shipyard/scripts"; return 0; }
+  [ -d "$REPO_ROOT/../mavergreen-shipyard/scripts" ] && \
+    { printf '%s\n' "$REPO_ROOT/../mavergreen-shipyard/scripts"; return 0; }
   return 1
 }
 SHIPYARD_SCRIPTS="$(_mav_shared_scripts || true)"; export SHIPYARD_SCRIPTS
