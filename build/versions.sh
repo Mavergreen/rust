@@ -41,8 +41,8 @@ export TARGET_TRIPLE="x86_64-apple-darwin"     # Rust's triple for 10.9 x86_64 (
 export MACOS_MIN="10.9"
 export NATIVE_PREFIX="/usr/local/mavericks-rust"
 export CROSS_PREFIX="/usr/local/mavericks-rust-cross"
-export NATIVE_IDENTIFIER="dev.modernmavericks.rust.rust"
-export CROSS_IDENTIFIER="dev.modernmavericks.rust.rust-cross"
+export NATIVE_IDENTIFIER="dev.mavergreen.rust.rust"
+export CROSS_IDENTIFIER="dev.mavergreen.rust.rust-cross"
 
 # shipyard scripts dir for shell callers (SDK fetch, compat guard, productbuild, build-info).
 # Resolve in the family's usual order: override -> user package registry -> sibling checkout.

@@ -1,2 +1,2 @@
-{"extraKnownMarketplaces": {"modernmavericks": {"source": {"source": "github", "repo": "Mavergreen/shipyard"}}},
- "enabledPlugins": {"modernmavericks@modernmavericks": true}}
+{"extraKnownMarketplaces": {"mavergreen": {"source": {"source": "github", "repo": "Mavergreen/shipyard"}}},
+ "enabledPlugins": {"mavergreen@mavergreen": true}}
