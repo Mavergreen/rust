@@ -1,0 +1,9 @@
+Updater icon: NONE. rust-updater / rust-cross-updater ship the standard macOS application icon by
+explicit opt-in (ALLOW_GENERIC), so no artwork is embedded.
+
+Deliberate: the Rust logo is CC-BY for copyright but a trademark of the Rust Foundation, and this
+product is an unofficial community build that must not read as official. A stand-in .icns would be
+exactly the placeholder the icon gate rejects.
+
+Exit (spec 2026-09-25 "Exit tasks"): when an original Mavergreen rust mark exists, add
+updater/rust.icns, pass ICON to mavericks_add_updater_app, and drop ALLOW_GENERIC.
