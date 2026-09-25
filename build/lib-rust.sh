@@ -3,26 +3,33 @@
 # WORK, MACOS_MIN). Callers pass the clang-22 prefix, the polyfill .a, the src tree, and the DESTDIR
 # staging prefix.
 
-# write_bootstrap_toml <src> <prefix> <clangdir>
-# prefix is the FINAL install prefix (CROSS_PREFIX); DESTDIR handles staging at package time.
 write_bootstrap_toml() {
-  _src="$1"; _prefix="$2"; _clang="$3"; _py="$(command -v python3 || echo /usr/local/bin/python3)"
-  cat > "$_src/bootstrap.toml" <<EOF
-[build]
+  _src="$1"; _prefix="$2"; _build="$3"; _host="$4"; _clang="$5"; _stage0="${6:-}"
+  _py="$(command -v python3 || echo /opt/pkg/bin/python3)"
+  _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
+  if [ "$_host" = "$TARGET_TRIPLE" ]; then _targets="\"$TARGET_TRIPLE\""; else _targets="\"$_host\", \"$TARGET_TRIPLE\""; fi
+  case "$_build$_host" in *aarch64*) _llvm_targets="AArch64;X86" ;; *) _llvm_targets="X86" ;; esac
+  {
+    printf '[build]\nbuild = "%s"\nhost = ["%s"]\ntarget = [%s]\n' "$_build" "$_host" "$_targets"
+    if [ -n "$_stage0" ]; then
+      printf 'rustc = "%s/bin/rustc"\ncargo = "%s/bin/cargo"\nlocal-rebuild = true\n' "$_stage0" "$_stage0"
+    fi
+    cat <<EOF
 python = "$_py"
+cmake = "$_cm"
 docs = false
 extended = true
-tools = ["cargo", "rustdoc"]
+tools = ["cargo", "rustdoc", "clippy", "rustfmt"]
 submodules = false
 vendor = true
 sanitizers = false
 profiler = false
-# NOTE: no [build] rustc/cargo -> x.py downloads its own pinned stage0 (arm64, runs natively on the
-# runner). No DYLD injection: that trick in native-bootstrap/rust.sh exists only for a build ON 10.9.
 
+EOF
+    # platform: 10.9's system OpenSSL is 0.9.8, too old for cargo, so openssl-src is vendored
+    # platform: 10.9's zlib 1.2.5 lacks z_const, so curl-sys cannot build libcurl; use the system one
+    cat <<EOF
 [build.tool.cargo]
-# 10.9's system OpenSSL 0.9.8 is too old -> build vendored OpenSSL with clang-22 (offline).
-# 10.9's zlib 1.2.5 lacks z_const so curl-sys cannot build libcurl from source -> use system libcurl.
 features = ["vendored-openssl", "curl/force-system-lib-on-osx"]
 
 [install]
@@ -35,18 +42,7 @@ channel = "stable"
 [llvm]
 download-ci-llvm = false
 ninja = true
-# BOTH backends, not just the 10.9 target's. X86 is what we cross-COMPILE FOR; AArch64 is what this
-# toolchain RUNS ON, and --host aarch64-apple-darwin means stage1/stage2 rustc must codegen for arm64
-# (its own std, build scripts, proc macros). Setting this key at all overrides bootstrap's default
-# target list, so omitting AArch64 silently drops it: llvm-config reported "X86 AVR M68k CSKY Xtensa"
-# and stage1 rustc ICE'd on --print=deployment-target with
-# "could not create LLVM TargetMachine for triple: arm64-apple-macosx11.0.0".
-targets = "AArch64;X86"
-# Keep pkgsrc /opt/pkg (and any other package-manager prefix) OUT of the LLVM build. On a pkgsrc box
-# cmake/ninja themselves come from /opt/pkg, and pkgsrc's cmake bakes /opt/pkg into find_library
-# results (libzstd/libxml2/libedit) -- which would ship as absolute paths and fail
-# tests/relocatable-test.sh. Mirror mavericks-clang's cross build (CMAKE_IGNORE_PREFIX_PATH + the
-# optional deps OFF). libzstd is rust bootstrap's own knob; the rest go through build-config.
+targets = "$_llvm_targets"
 libzstd = false
 build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
 
@@ -57,6 +53,12 @@ ar = "$_clang/bin/llvm-ar"
 ranlib = "$_clang/bin/llvm-ranlib"
 linker = "$_clang/bin/clang++"
 EOF
+  } > "$_src/bootstrap.toml"
+}
+
+write_x86_cmake_toolchain() {
+  printf 'set(CMAKE_OSX_SYSROOT "%s")\nset(CMAKE_OSX_DEPLOYMENT_TARGET "%s")\nset(CMAKE_OSX_ARCHITECTURES "x86_64")\n' \
+    "$2" "$MACOS_MIN" > "$1"
 }
 
 # augment_shim <poly_a> <clangdir>
@@ -169,61 +171,6 @@ relocate_prefix() {
     [ "$rel" = "." ] && rel="@loader_path" || rel="@loader_path/$rel"
     otool -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
   done
-}
-
-# --- NATIVE variant (Plan 2): host==target==x86_64-apple-darwin, runs on real 10.9 -----------------
-
-# write_bootstrap_toml_native <src> <prefix> <clangdir>
-# Single-triple x86_64/10.9 build (run under Rosetta on an arm64 builder, or natively on 10.9). Unlike
-# the cross config, clang-22 is the CORRECT host compiler too (it defaults to x86_64/10.9), and no
-# AArch64 LLVM backend is needed (host==target==x86_64). No [build] rustc/cargo -> x.py downloads the
-# pinned x86_64 stage0 (Rosetta runs it). Same /opt/pkg guard as the cross build.
-write_bootstrap_toml_native() {
-  _src="$1"; _prefix="$2"; _clang="$3"; _sdk="$4"; _py="$(command -v python3 || echo /usr/local/bin/python3)"
-  cat > "$_src/bootstrap.toml" <<EOF
-[build]
-build = "x86_64-apple-darwin"
-host = ["x86_64-apple-darwin"]
-target = ["x86_64-apple-darwin"]
-python = "$_py"
-docs = false
-extended = true
-tools = ["cargo", "rustdoc"]
-submodules = false
-vendor = true
-sanitizers = false
-profiler = false
-
-[build.tool.cargo]
-features = ["vendored-openssl", "curl/force-system-lib-on-osx"]
-
-[install]
-prefix = "$_prefix"
-sysconfdir = "etc"
-
-[rust]
-channel = "stable"
-
-[llvm]
-download-ci-llvm = false
-ninja = true
-targets = "X86"
-libzstd = false
-# CMAKE_OSX_SYSROOT is load-bearing for the NATIVE build: clang-22's 10.9 -isysroot lives inside its
-# clang.cfg, which CMake cannot see, so find_package(ZLIB/Backtrace) otherwise searches the HOST macOS
-# SDK and injects its C headers as -isystem AHEAD of clang-22's libc++ (breaking <cstddef>). Pointing
-# CMake at the pinned 10.9 SDK makes every probe resolve against 10.9 in one move. DEPLOYMENT_TARGET
-# counters the cc crate's host-derived -mmacosx-version-min (would be the runner's OS, e.g. 26.5). The
-# IGNORE_PREFIX_PATH + optional-deps-OFF guard is the same /opt/pkg leak guard as the cross build.
-build-config = { CMAKE_OSX_SYSROOT = "$_sdk", CMAKE_OSX_DEPLOYMENT_TARGET = "$MACOS_MIN", CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
-
-[target.x86_64-apple-darwin]
-cc = "$_clang/bin/clang"
-cxx = "$_clang/bin/clang++"
-ar = "$_clang/bin/llvm-ar"
-ranlib = "$_clang/bin/llvm-ranlib"
-linker = "$_clang/bin/clang++"
-EOF
 }
 
 # wrap_rustc_native <installed_prefix>
