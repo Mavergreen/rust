@@ -4,7 +4,6 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"
 export TARGET_TRIPLE MACOS_MIN REPO_ROOT
-SHIPYARD_CMAKE=/opt/fake/bin/shipyard-cmake; export SHIPYARD_CMAKE
 . "$ROOT/build/lib-rust.sh"
 t="$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-toml.XXXXXX")"; trap 'rm -rf "$t"' EXIT
 fail() { echo "FAIL $1"; exit 1; }
@@ -32,7 +31,7 @@ hasnt xhost 'local-rebuild'
 hasnt cross 'rustc = '
 for v in cross xhost onbox; do
   has "$v" 'tools = ["cargo", "rustdoc", "clippy", "rustfmt"]'
-  has "$v" 'cmake = "/opt/fake/bin/shipyard-cmake"'
+  hasnt "$v" 'cmake = '
   has "$v" 'cc = "/c/bin/clang"'
   has "$v" 'CMAKE_IGNORE_PREFIX_PATH'
   hasnt "$v" '[target.aarch64-apple-darwin]'
@@ -43,4 +42,10 @@ write_x86_cmake_toolchain "$t/tc.cmake" /sdk109
 grep -qx 'set(CMAKE_OSX_SYSROOT "/sdk109")' "$t/tc.cmake" || fail "toolchain: sysroot (a cross-hosted x86_64 LLVM must not probe the host SDK)"
 grep -qx 'set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9")' "$t/tc.cmake" || fail "toolchain: deployment target"
 grep -qx 'set(CMAKE_OSX_ARCHITECTURES "x86_64")' "$t/tc.cmake" || fail "toolchain: arch"
+printf '#!/bin/sh\n' > "$t/fake-shipyard-cmake"; chmod +x "$t/fake-shipyard-cmake"
+d="$(SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/cmbin")"
+[ "$d" = "$t/cmbin" ] || fail "cmake_shim_dir must print its dir (got '$d')"
+[ "$(readlink "$t/cmbin/cmake")" = "$t/fake-shipyard-cmake" ] \
+  || fail "cmake_shim_dir: bootstrap 1.95 has no [build] cmake key and runs 'cmake' from PATH, so the dir must hold cmake -> shipyard-cmake"
+! SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
 echo "OK bootstrap-toml-test"

@@ -1,12 +1,10 @@
 #!/bin/sh
-# Sourced helpers for the rust build. Requires versions.sh already sourced (RUST_VERSION, TARGET_TRIPLE,
-# WORK, MACOS_MIN). Callers pass the clang-22 prefix, the polyfill .a, the src tree, and the DESTDIR
-# staging prefix.
+# platform: macOS-only -- relocate_prefix runs otool and install_name_tool
+#   usage: . build/lib-rust.sh   (after build/versions.sh; needs TARGET_TRIPLE, MACOS_MIN, WORK)
 
 write_bootstrap_toml() {
   _src="$1"; _prefix="$2"; _build="$3"; _host="$4"; _clang="$5"; _stage0="${6:-}"
   _py="$(command -v python3 || echo /opt/pkg/bin/python3)"
-  _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
   if [ "$_host" = "$TARGET_TRIPLE" ]; then _targets="\"$TARGET_TRIPLE\""; else _targets="\"$_host\", \"$TARGET_TRIPLE\""; fi
   case "$_build$_host" in *aarch64*) _llvm_targets="AArch64;X86" ;; *) _llvm_targets="X86" ;; esac
   {
@@ -16,7 +14,6 @@ write_bootstrap_toml() {
     fi
     cat <<EOF
 python = "$_py"
-cmake = "$_cm"
 docs = false
 extended = true
 tools = ["cargo", "rustdoc", "clippy", "rustfmt"]
@@ -56,28 +53,21 @@ EOF
   } > "$_src/bootstrap.toml"
 }
 
+# spec: docs/superpowers/plans/2026-09-25-rust-plan3a-conformance.md Task 3 ruling -- bootstrap 1.95
+#       has no [build] cmake key; its sanity check and the cmake crate run `cmake` from PATH ($CMAKE)
+cmake_shim_dir() {
+  _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
+  [ -x "$_cm" ] || { echo "FATAL: no shipyard-cmake at $_cm" >&2; return 1; }
+  mkdir -p "$1"; ln -sfn "$_cm" "$1/cmake"; printf '%s\n' "$1"
+}
+
 write_x86_cmake_toolchain() {
   printf 'set(CMAKE_OSX_SYSROOT "%s")\nset(CMAKE_OSX_DEPLOYMENT_TARGET "%s")\nset(CMAKE_OSX_ARCHITECTURES "x86_64")\n' \
     "$2" "$MACOS_MIN" > "$1"
 }
 
-# augment_shim <poly_a> <clangdir>
-# Compile EVERY build/polyfill-*.c into the fetched legacy-support archive, then install that archive as
-# the one clang-22 auto-links. Each polyfill-*.c back-fills 10.9-missing symbols the family authors
-# itself (ccrandom: std's entropy source; dispatch: dispatch2 symbols ctrlc links but never calls). Two
-# jobs, deliberately in one place:
-#
-#   1. std/rustc do not link for 10.9 without these (see each build/polyfill-*.c header). Adding them to
-#      the .a rather than passing stray .o's keeps ONE answer to "what backfills 10.9", and makes the
-#      eventual move to mavericks-compat a deletion rather than a redesign.
-#   2. It makes MLS_VERSION authoritative. clang-22's .pkg bundles its OWN shim copy, and clang.cfg names
-#      that copy (<CFGDIR>/../lib/libMacportsLegacySupport.a) -- so without this, the bundled copy (not
-#      the pinned one) is what every target link resolves against. Overwriting it closes that drift.
-#
-# Adding a new back-fill = drop a new build/polyfill-*.c; no code change here. Idempotent:
-# fetch-legacy-support.sh re-extracts a pristine .a each run and `ar r` replaces members. Compiling via
-# clang-22 (not the host clang) is what makes each object x86_64/10.9 (its clang.cfg supplies target,
-# min-version, SDK). Fails loudly BEFORE a ~50-min build's link if a load-bearing symbol is missing.
+# platform: clang-22's clang.cfg auto-links <CFGDIR>/../lib/libMacportsLegacySupport.a, its own
+#           bundled copy, so the pinned shim must overwrite it or every link resolves the bundled one
 augment_shim() {
   _poly="$1"; _clang="$2"
   for _src in "$REPO_ROOT"/build/polyfill-*.c; do
@@ -92,44 +82,26 @@ augment_shim() {
   cp -f "$_poly" "$_clang/lib/libMacportsLegacySupport.a"
 }
 
-# wrap_rustc_cross <installed_prefix>
-# Bundle the polyfill into the toolchain and replace bin/rustc with a /bin/sh wrapper that adds the
-# 10.9 back-fill link-args ONLY when the invocation targets x86_64-apple-darwin. The real compiler
-# moves to rustc.bin. Idempotent (skips if bin/rustc is already the shell wrapper). The polyfill .a
-# must already be copied to <prefix>/lib/rustlib/<target>/lib/libMacportsLegacySupport.a.
-#
-# Two of the link-args are subtler than they look, and BOTH are required to cross-link on a modern
-# host. Naming the archive alone (the original form) is not enough:
-#
-#   -Wl,-force_load  A plain archive on the link line contributes only members that resolve a symbol
-#                    still undefined WHEN THE LINKER REACHES IT. rustc emits -lSystem *before* our
-#                    -C link-args, so on a modern host libSystem -- which HAS clock_gettime since
-#                    10.12 -- already satisfied it and the archive was never consulted: the symbol
-#                    stayed an UNDEFINED IMPORT of a function absent from real 10.9. (Building ON 10.9
-#                    hides this, because there libSystem genuinely lacks the symbol and the archive
-#                    does get pulled -- which is why the rule inherited from native-bootstrap/rust.sh
-#                    looked correct.) force_load pulls the members unconditionally, so they are
-#                    DEFINED in the output and the compat guard's REQUIRE_DEFINED check passes.
-#   -mmacosx-version-min  rustc hard-clamps x86_64-apple-darwin to a 10.12 deployment target
-#                    (os_minimum_deployment_target: MacOs => (10,12,0), then version.max(min) -- so
-#                    MACOSX_DEPLOYMENT_TARGET cannot lower it) and passes -mmacosx-version-min=10.12.0
-#                    to the linker driver. Ours lands after rustc's, and last wins, so the output gets
-#                    LC_VERSION_MIN_MACOSX 10.9 as assert_binary_compatible.sh requires.
-#
-# Both are plain link-args, so the wrapper stays relocatable and still needs no clang-22 and no
-# absolute path -- the property the design spec asks for.
-wrap_rustc_cross() {
-  _p="$1"
+# platform: rustc puts -lSystem before -C link-args, so on a modern SDK libSystem resolves
+#           clock_gettime first unless the shim archive is force_loaded
+# platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
+#           the linker driver; the last -mmacosx-version-min on the line wins
+wrap_rustc() {
+  _p="$1"; _mode="$2"
   [ "$(head -c2 "$_p/bin/rustc" 2>/dev/null)" = '#!' ] && return 0
   mv "$_p/bin/rustc" "$_p/bin/rustc.bin"
+  if [ "$_mode" = always ]; then _wants=1; else _wants=0; fi
   cat > "$_p/bin/rustc" <<EOF
 #!/bin/sh
-# Auto-link the 10.9 back-fill polyfill so std's post-10.9 API references (clock_gettime, ...) resolve
-# on 10.9 with any linker, but ONLY when producing an x86_64-apple-darwin artifact -- an arm64 host
-# build script / proc-macro must not pull an x86_64 archive. Path is relative to this wrapper.
-S="\$(cd "\$(dirname "\$0")" >/dev/null 2>&1 && pwd)"
+self="\$0"
+while [ -h "\$self" ]; do
+  link="\$(readlink "\$self")"
+  case "\$link" in /*) self="\$link" ;; *) self="\$(dirname "\$self")/\$link" ;; esac
+done
+S="\$(cd "\$(dirname "\$self")" >/dev/null 2>&1 && pwd)"
 P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
-prev=""; wants=0
+wants=$_wants
+prev=""
 for a in "\$@"; do
   [ "\$prev" = "--target" ] && [ "\$a" = "$TARGET_TRIPLE" ] && wants=1
   case "\$a" in --target="$TARGET_TRIPLE") wants=1 ;; esac
@@ -148,10 +120,7 @@ EOF
   chmod +x "$_p/bin/rustc"
 }
 
-# relocate_prefix <installed_prefix> <clangdir>
-# Bundle clang-22's libc++/libc++abi/libunwind into <prefix>/lib and rewrite every Mach-O's repo/clang
-# absolute rpath to a @loader_path-relative one -> <prefix>/lib. Uses the SYSTEM install_name_tool
-# (llvm-install-name-tool crashes standalone). Ported from native-bootstrap/rust.sh relocate().
+# platform: llvm-install-name-tool crashes when run standalone; /usr/bin/install_name_tool does not
 relocate_prefix() {
   _p="$1"; _clang="$2"; NT="/usr/bin/install_name_tool"
   for d in libc++.1.0.dylib libc++abi.1.0.dylib libunwind.1.0.dylib; do
@@ -173,29 +142,17 @@ relocate_prefix() {
   done
 }
 
-# wrap_rustc_native <installed_prefix>
-# The native variant's only target IS its host (x86_64/10.9), so EVERY link is the 10.9 target -- auto
-# force_load the polyfill and clamp min-version UNCONDITIONALLY (the cross wrapper gates on --target
-# because it also builds arm64 host artifacts; native has no other target). Same force_load + min-version
-# reasoning as wrap_rustc_cross. Idempotent.
-wrap_rustc_native() {
-  _p="$1"
-  [ "$(head -c2 "$_p/bin/rustc" 2>/dev/null)" = '#!' ] && return 0
-  mv "$_p/bin/rustc" "$_p/bin/rustc.bin"
-  cat > "$_p/bin/rustc" <<EOF
-#!/bin/sh
-# Native 10.9 rustc: host==target==x86_64/10.9, so link the 10.9 back-fill polyfill on every link.
-S="\$(cd "\$(dirname "\$0")" >/dev/null 2>&1 && pwd)"
-P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
-if [ -f "\$P" ]; then
-  exec "\$S/rustc.bin" \\
-    -C link-arg=-Wl,-force_load,"\$P" \\
-    -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
-    -C link-arg=-framework -C link-arg=CoreFoundation \\
-    -C link-arg=-framework -C link-arg=Security \\
-    -C link-arg=-lobjc "\$@"
-fi
-exec "\$S/rustc.bin" "\$@"
-EOF
-  chmod +x "$_p/bin/rustc"
+staged_complete() {
+  for _t in rustc cargo rustdoc clippy-driver cargo-clippy rustfmt cargo-fmt; do
+    [ -x "$1/bin/$_t" ] || return 1
+  done
+}
+
+write_stage0_wrappers() {
+  mkdir -p "$1/bin"
+  for _b in rustc cargo; do
+    printf '#!/bin/sh\nexport DYLD_INSERT_LIBRARIES="%s/libMavericksLegacySupport.dylib"\nexport DYLD_FORCE_FLAT_NAMESPACE=1\nexec "%s/%s/bin/%s" "$@"\n' \
+      "$1" "$2" "$_b" "$_b" > "$1/bin/$_b"
+    chmod +x "$1/bin/$_b"
+  done
 }
