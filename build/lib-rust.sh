@@ -156,3 +156,13 @@ write_stage0_wrappers() {
     chmod +x "$1/bin/$_b"
   done
 }
+
+# spec: docs/superpowers/plans/2026-09-25-rust-plan3a-conformance.md Task 10 ruling -- a
+#       cross-hosted install leaves rustc's own proc-macro dylibs in lib/; nothing links them
+prune_proc_macro_dylibs() {
+  for _d in "$1"/lib/*.dylib; do
+    [ -f "$_d" ] && [ ! -h "$_d" ] || continue
+    nm -gU "$_d" 2>/dev/null | grep -q '__rustc_proc_macro_decls_' && rm -f "$_d"
+  done
+  return 0
+}

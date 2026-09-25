@@ -52,6 +52,7 @@ echo "== bundle polyfill + wrap rustc (target-gated) =="
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
 cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
 wrap_rustc "$STAGE" gated
+prune_proc_macro_dylibs "$STAGE"
 
 echo "== relocate (bundle runtimes, rewrite rpaths) =="
 relocate_prefix "$STAGE" "$CLANGDIR"

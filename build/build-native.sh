@@ -48,6 +48,7 @@ staged_complete "$STAGE" || { echo "FATAL: x.py install did not stage every tool
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
 cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
 wrap_rustc "$STAGE" always
+prune_proc_macro_dylibs "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
 sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
