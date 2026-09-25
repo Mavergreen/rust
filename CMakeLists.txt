@@ -20,14 +20,9 @@ include(MavericksSparkle)
 mavericks_resolve_version(MAV_RUST_VERSION)
 # spec: docs/superpowers/specs/2026-09-25-rust-plan3a-conformance-design.md decision 7 -- the
 #       generic icon on purpose; updater/ICON-CREDIT.txt has the reason and the exit.
-# spec: docs/superpowers/specs/2026-09-25-rust-plan3a-conformance-design.md "Packaging and the
-#       updater" -- BUNDLE_ID/FEED_URL equal what shipyard's registry derivation (PRODUCT) will
-#       produce; switch to PRODUCT ${_short} once the dev shipyard carries it.
 mavericks_add_updater_app(
-  NAME ${_short}-updater
+  PRODUCT ${_short}
   PRODUCT_NAME "${_product}"
-  BUNDLE_ID dev.mavergreen.rust.${_short}.updater
-  FEED_URL "https://github.com/Mavergreen/rust/releases/latest/download/${_short}.xml"
   VERSION "${MAV_RUST_VERSION}"
   LOG_PREFIX "MavRustUpdater"
   CONFIRM_TITLE "${_product} updated"

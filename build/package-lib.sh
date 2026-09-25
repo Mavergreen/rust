@@ -21,10 +21,7 @@ package_variant() {
   ditto --norsrc --noextattr --noacl "$sroot$prefix" "$pr$prefix"
   app="$(sh "$REPO_ROOT/build/build-updater.sh" "$v")"
   set -- --stage "$pr" --product "$short" --name "Rust for Mavericks" --group rust \
-    --version "$VER" --appcast "https://github.com/Mavergreen/rust/releases/latest/download/$short.xml" \
-    --exclude bin/rustc.bin --scripts-out "$scr" \
-    --updater-app "$app" --app-dir "/Library/Application Support/Mavergreen" \
-    --agent-label "$id-updatecheck"
+    --version "$VER" --exclude bin/rustc.bin --scripts-out "$scr" --updater-app "$app"
   if [ -n "$line" ]; then set -- "$@" --line "$line"; fi
   find "$pr" -name '._*' -delete
   sh "$SHIPYARD_SCRIPTS/stage_product.sh" "$@"
