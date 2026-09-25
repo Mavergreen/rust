@@ -34,4 +34,13 @@ case "$out" in *force_load*) fail "case 5 gated wrapper must not link the x86_64
 
 before="$(cat "$t/native/bin/rustc")"; wrap_rustc "$t/native" always
 [ "$before" = "$(cat "$t/native/bin/rustc")" ] || fail "case 6 wrap_rustc must be idempotent"
+mkdir -p "$t/cd/bin" "$t/cd/lib/rustlib/$TARGET_TRIPLE/lib"
+printf 'echo "STUB $*"\n' > "$t/cd/bin/clippy-driver"; chmod +x "$t/cd/bin/clippy-driver"
+: > "$t/cd/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
+wrap_linking_tool "$t/cd" clippy-driver always
+[ -x "$t/cd/bin/clippy-driver.bin" ] || fail "case 7 clippy-driver moves to clippy-driver.bin"
+out="$("$t/cd/bin/clippy-driver" /somewhere/bin/rustc --crate-type proc-macro x.rs)"
+case "$out" in "STUB /somewhere/bin/rustc -C link-arg=-Wl,-force_load,"*) : ;; *) fail "case 7 under RUSTC_WORKSPACE_WRAPPER, cargo passes rustc's path first; the back-fill args go after it (cargo clippy on 10.9 left a proc-macro's _clock_gettime undefined): $out" ;; esac
+out="$("$t/cd/bin/clippy-driver" x.rs)"
+case "$out" in "STUB -C link-arg=-Wl,-force_load,"*) : ;; *) fail "case 8 clippy-driver called directly: $out" ;; esac
 echo "OK wrapper-test"

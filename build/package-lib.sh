@@ -12,7 +12,10 @@ package_variant() {
             line=cross; arch=arm64; floor="--min-os 11.0 --host-arch arm64"; title_tail=" (cross toolchain for modern macOS)" ;;
     *) echo "package_variant: native|cross (got '$v')" >&2; return 2 ;;
   esac
+  . "$REPO_ROOT/build/lib-rust.sh"
   [ -x "$sroot$prefix/bin/rustc.bin" ] || { echo "FATAL: $v not staged at $sroot$prefix" >&2; exit 1; }
+  stage_is_current "$WORK/staged.stamp" "$v" \
+    || { echo "FATAL: the $v stage is stale or unfinished (no current $WORK/staged.stamp): build-$v.sh again" >&2; exit 1; }
   VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")")"
   pr="$WORK/pkgroot"; scr="$WORK/pkg-scripts"; comp="$WORK/$short-component.pkg"
   rm -rf "$pr" "$scr"; mkdir -p "$pr$(dirname "$prefix")" "$REPO_ROOT/dist"
@@ -21,7 +24,7 @@ package_variant() {
   ditto --norsrc --noextattr --noacl "$sroot$prefix" "$pr$prefix"
   app="$(sh "$REPO_ROOT/build/build-updater.sh" "$v")"
   set -- --stage "$pr" --product "$short" --name "Rust for Mavericks" --group rust \
-    --version "$VER" --exclude bin/rustc.bin --scripts-out "$scr" --updater-app "$app"
+    --version "$VER" --exclude bin/rustc.bin --exclude bin/clippy-driver.bin --scripts-out "$scr" --updater-app "$app"
   if [ -n "$line" ]; then set -- "$@" --line "$line"; fi
   find "$pr" -name '._*' -delete
   sh "$SHIPYARD_SCRIPTS/stage_product.sh" "$@"

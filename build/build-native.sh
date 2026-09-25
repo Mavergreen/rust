@@ -12,7 +12,8 @@ JOBS="$(mavericks_build_jobs)"
 STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
 MODE="$(sh "$SHIPYARD_SCRIPTS/mavericks_mode.sh")"
 
-if staged_complete "$STAGE"; then echo ">> already staged at $STAGE"; exit 0; fi
+if staged_complete "$STAGE" && stage_is_current "$WORK/staged.stamp" native; then echo ">> already staged at $STAGE"; exit 0; fi
+rm -f "$WORK/staged.stamp"; rm -rf "$NATIVE_STAGE_ROOT"
 
 case "$MODE" in
   cross)  [ "$(uname -m)" = arm64 ] || { echo "FATAL: cross-hosting needs an arm64 build machine (got $(uname -m))" >&2; exit 1; }
@@ -48,8 +49,10 @@ staged_complete "$STAGE" || { echo "FATAL: x.py install did not stage every tool
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
 cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
 wrap_rustc "$STAGE" always
+wrap_linking_tool "$STAGE" clippy-driver always
 prune_proc_macro_dylibs "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
 sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
+stage_stamp native > "$WORK/staged.stamp"
 echo ">> native ($MODE) staged at $STAGE"

@@ -96,12 +96,13 @@ augment_shim() {
 #           clock_gettime first unless the shim archive is force_loaded
 # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
 #           the linker driver; the last -mmacosx-version-min on the line wins
-wrap_rustc() {
-  _p="$1"; _mode="$2"
-  [ "$(head -c2 "$_p/bin/rustc" 2>/dev/null)" = '#!' ] && return 0
-  mv "$_p/bin/rustc" "$_p/bin/rustc.bin"
+wrap_linking_tool() {
+  _p="$1"; _tool="$2"; _mode="$3"
+  [ "$(head -c2 "$_p/bin/$_tool" 2>/dev/null)" = '#!' ] && return 0
+  mv "$_p/bin/$_tool" "$_p/bin/$_tool.bin"
   if [ "$_mode" = always ]; then _wants=1; else _wants=0; fi
-  cat > "$_p/bin/rustc" <<EOF
+  if [ "$_tool" = rustc ]; then _passthru=0; else _passthru=1; fi
+  cat > "$_p/bin/$_tool" <<EOF
 #!/bin/sh
 self="\$0"
 while [ -h "\$self" ]; do
@@ -118,17 +119,30 @@ for a in "\$@"; do
   prev="\$a"
 done
 if [ "\$wants" = 1 ] && [ -f "\$P" ]; then
-  exec "\$S/rustc.bin" \\
+  if [ $_passthru = 1 ] && [ "\$#" -gt 0 ]; then
+    case "\$1" in rustc|*/rustc|*/rustc.bin)
+      first="\$1"; shift
+      exec "\$S/$_tool.bin" "\$first" \\
+        -C link-arg=-Wl,-force_load,"\$P" \\
+        -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
+        -C link-arg=-framework -C link-arg=CoreFoundation \\
+        -C link-arg=-framework -C link-arg=Security \\
+        -C link-arg=-lobjc "\$@" ;;
+    esac
+  fi
+  exec "\$S/$_tool.bin" \\
     -C link-arg=-Wl,-force_load,"\$P" \\
     -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
     -C link-arg=-framework -C link-arg=CoreFoundation \\
     -C link-arg=-framework -C link-arg=Security \\
     -C link-arg=-lobjc "\$@"
 fi
-exec "\$S/rustc.bin" "\$@"
+exec "\$S/$_tool.bin" "\$@"
 EOF
-  chmod +x "$_p/bin/rustc"
+  chmod +x "$_p/bin/$_tool"
 }
+
+wrap_rustc() { wrap_linking_tool "$1" rustc "$2"; }
 
 # platform: llvm-install-name-tool crashes when run standalone; /usr/bin/install_name_tool does not
 relocate_prefix() {
@@ -175,4 +189,16 @@ prune_proc_macro_dylibs() {
     nm -gU "$_d" 2>/dev/null | grep -q '__rustc_proc_macro_decls_' && rm -f "$_d"
   done
   return 0
+}
+
+stage_stamp() {
+  printf 'variant=%s\nrust=%s\nclang=%s\nlegacy_support=%s\n' \
+    "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$MLS_VERSION"
+  for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh" "$REPO_ROOT"/build/polyfill-*.c; do
+    printf '%s %s\n' "$(shasum -a 256 "$_f" | awk '{print $1}')" "${_f#"$REPO_ROOT"/}"
+  done
+}
+
+stage_is_current() {
+  [ -f "$1" ] && [ "$(cat "$1")" = "$(stage_stamp "$2")" ]
 }

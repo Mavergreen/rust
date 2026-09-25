@@ -13,9 +13,10 @@ export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
 STAGE_ROOT="$CROSS_STAGE_ROOT"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
 
-if staged_complete "$STAGE"; then
+if staged_complete "$STAGE" && stage_is_current "$WORK/staged.stamp" cross; then
   echo ">> already staged at $STAGE"; exit 0
 fi
+rm -f "$WORK/staged.stamp"; rm -rf "$STAGE_ROOT"
 
 echo "== fetch inputs =="
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
@@ -62,10 +63,12 @@ echo "== bundle polyfill + wrap rustc (target-gated) =="
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
 cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
 wrap_rustc "$STAGE" gated
+wrap_linking_tool "$STAGE" clippy-driver gated
 prune_proc_macro_dylibs "$STAGE"
 
 echo "== relocate (bundle runtimes, rewrite rpaths) =="
 relocate_prefix "$STAGE" "$CLANGDIR"
 
+stage_stamp cross > "$WORK/staged.stamp"
 echo ">> staged cross toolchain at $STAGE"
 "$STAGE/bin/rustc" --version

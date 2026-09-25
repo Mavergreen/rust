@@ -26,7 +26,9 @@ for short in rust rust-cross; do
   printf '%s\n' "$files" | grep -qx "usr/local/mavergreen/$short/mavergreen.plist" || fail "$short: no manifest"
   printf '%s\n' "$files" | grep -qx "usr/local/mavergreen/$short/bin/rustc.bin" || fail "$short: rustc.bin missing"
   ex="$(/usr/libexec/PlistBuddy -c 'Print :exports-exclude' "$(find "$t/f" -path "*/Payload/usr/local/mavergreen/$short/mavergreen.plist")")"
-  printf '%s\n' "$ex" | grep -q 'bin/rustc.bin' || fail "$short: manifest must exclude bin/rustc.bin from the link farm"
+  for b in rustc clippy-driver; do
+    printf '%s\n' "$ex" | grep -q "bin/$b.bin" || fail "$short: manifest must exclude bin/$b.bin from the link farm (bin/$b is its back-fill wrapper)"
+  done
   rm -rf "$t"
 done
 [ "$n" -gt 0 ] || { echo "no pkg built -- skipping"; exit 77; }
