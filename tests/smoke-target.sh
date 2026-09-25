@@ -20,7 +20,9 @@ fn main() {
     println!("smoke {:?} {}", m.get("mavericks"), n);
 }
 EOF
-"$RUSTC" --target "$TARGET_TRIPLE" "$t/smoke.rs" -o "$t/smoke"
+# spec: shipyard docs/superpowers/specs/2026-09-24-sdk-pinning-design.md, decision 1 -- a 10.9
+#       binary records the pinned 10.9 SDK; rustc links against $SDKROOT when it is set
+SDKROOT="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch x86_64)" "$RUSTC" --target "$TARGET_TRIPLE" "$t/smoke.rs" -o "$t/smoke"
 lipo -info "$t/smoke" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \

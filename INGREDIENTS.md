@@ -59,4 +59,5 @@ the same way.
 ## Conformance deviations
 
 - python3: x.py, Rust's own build driver, is Python; a native 10.9 build takes python3 from pkgsrc. No alternative exists upstream.
-- sdk-pin:usr/local/mavergreen/*/lib/rustlib/x86_64-apple-darwin/lib/*.rlib: rustc clamps every x86_64-apple-darwin object it compiles to minos 10.12 (os_minimum_deployment_target), so the std rlibs record 10.12. They are link inputs, not installed executables: every link goes through bin/rustc, which passes -mmacosx-version-min=10.9, and the compat guard plus the real-10.9 runs check the linked output. Only patching rustc's target spec would change the rlibs.
+- sdk-pin:usr/local/mavergreen/*/lib/rustlib/*/lib/*.rlib: rustc-emitted objects record no SDK, and rustc clamps every x86_64-apple-darwin object to minos 10.12 (os_minimum_deployment_target). These rlibs are link inputs, not installed executables: every x86_64 link goes through bin/rustc, which passes -mmacosx-version-min=10.9, and the compat guard plus the real-10.9 runs check the linked output. Only patching rustc's target spec would change them.
+- floor:rust-cross-*.pkg: the cross toolchain runs on macOS 11 and later and only targets 10.9, so its archive's install floor is 11.0, not 10.9.5.

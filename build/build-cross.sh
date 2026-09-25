@@ -31,7 +31,14 @@ echo "== backfill CCRandomGenerateBytes into the shim (and make MLS_VERSION auth
 augment_shim "$POLY_A" "$CLANGDIR"
 
 echo "== configure bootstrap.toml =="
-write_bootstrap_toml "$SRC" "$CROSS_PREFIX" aarch64-apple-darwin aarch64-apple-darwin "$CLANGDIR"
+# spec: shipyard docs/superpowers/specs/2026-09-24-sdk-pinning-design.md, decision 1 --
+#       the arm64 half this pkg installs records the pinned 11.3 SDK, minos 11.0
+ARM_SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch arm64)"
+mkdir -p "$WORK/bin"
+write_pinned_cc "$WORK/bin/cc-arm64-pinned" "$ARM_SDK"
+write_cmake_toolchain "$WORK/aarch64-11.0.cmake" "$ARM_SDK" 11.0 arm64
+ARM64_LINKER="$WORK/bin/cc-arm64-pinned" \
+  write_bootstrap_toml "$SRC" "$CROSS_PREFIX" aarch64-apple-darwin aarch64-apple-darwin "$CLANGDIR"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via clang-22; LLVM from source) =="
@@ -40,7 +47,10 @@ echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via cl
 # platform: clang-22 defaults to an x86_64/10.9 target, so on PATH it would shadow the arm64 host compiler
 ( cd "$SRC" && \
   PATH="$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
-    DESTDIR="$STAGE_ROOT" \
+  CMAKE_TOOLCHAIN_FILE_aarch64_apple_darwin="$WORK/aarch64-11.0.cmake" \
+  CFLAGS_aarch64_apple_darwin="-isysroot $ARM_SDK -mmacosx-version-min=11.0" \
+  CXXFLAGS_aarch64_apple_darwin="-isysroot $ARM_SDK -mmacosx-version-min=11.0" \
+  DESTDIR="$STAGE_ROOT" \
   PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig \
   PKG_CONFIG_PATH= \
   CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \

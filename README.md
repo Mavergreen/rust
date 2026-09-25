@@ -13,6 +13,8 @@ on 10.9.
 | `rust-cross-<version>.pkg` | macOS 11 and later on Apple Silicon | `/usr/local/mavergreen/rust-cross` |
 
 Both produce x86_64 binaries for 10.9. Installer refuses the package that doesn't fit the Mac.
+With the cross package, set `SDKROOT` to a Mac OS X 10.9 SDK to link against it rather than the
+running macOS's SDK; that is how this project's own builds and tests link.
 
 After installing, open a new terminal: `/usr/local/mavergreen/bin` is on every login shell's `PATH`
 through `/etc/paths.d/mavergreen`, and `rustc`, `cargo` and friends are linked there. Tools that

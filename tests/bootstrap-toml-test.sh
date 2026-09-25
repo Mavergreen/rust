@@ -48,4 +48,14 @@ d="$(SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/cmbin")"
 [ "$(readlink "$t/cmbin/cmake")" = "$t/fake-shipyard-cmake" ] \
   || fail "cmake_shim_dir: bootstrap 1.95 has no [build] cmake key and runs 'cmake' from PATH, so the dir must hold cmake -> shipyard-cmake"
 ! SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
+mkdir -p "$t/pinned"
+ARM64_LINKER=/w/cc-arm64-pinned write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c
+grep -A1 -x '\[target.aarch64-apple-darwin\]' "$t/pinned/bootstrap.toml" | grep -qx 'linker = "/w/cc-arm64-pinned"' \
+  || fail "ARM64_LINKER must become [target.aarch64-apple-darwin] linker (arm64 links record the pinned 11.3 SDK)"
+write_cmake_toolchain "$t/arm.cmake" /sdk113 11.0 arm64
+grep -qx 'set(CMAKE_OSX_SYSROOT "/sdk113")' "$t/arm.cmake" && grep -qx 'set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")' "$t/arm.cmake" \
+  && grep -qx 'set(CMAKE_OSX_ARCHITECTURES "arm64")' "$t/arm.cmake" \
+  || fail "arm64 toolchain: the aarch64 LLVM tools shipped minos 27.0 without one"
+write_pinned_cc "$t/pcc" /sdk113
+[ -x "$t/pcc" ] && grep -q 'exec /usr/bin/clang -isysroot "/sdk113" "\$@"' "$t/pcc" || fail "pinned cc wrapper"
 echo "OK bootstrap-toml-test"

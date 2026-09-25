@@ -50,6 +50,9 @@ ar = "$_clang/bin/llvm-ar"
 ranlib = "$_clang/bin/llvm-ranlib"
 linker = "$_clang/bin/clang++"
 EOF
+    if [ -n "${ARM64_LINKER:-}" ]; then
+      printf '\n[target.aarch64-apple-darwin]\nlinker = "%s"\n' "$ARM64_LINKER"
+    fi
   } > "$_src/bootstrap.toml"
 }
 
@@ -61,9 +64,16 @@ cmake_shim_dir() {
   mkdir -p "$1"; ln -sfn "$_cm" "$1/cmake"; printf '%s\n' "$1"
 }
 
-write_x86_cmake_toolchain() {
-  printf 'set(CMAKE_OSX_SYSROOT "%s")\nset(CMAKE_OSX_DEPLOYMENT_TARGET "%s")\nset(CMAKE_OSX_ARCHITECTURES "x86_64")\n' \
-    "$2" "$MACOS_MIN" > "$1"
+write_cmake_toolchain() {
+  printf 'set(CMAKE_OSX_SYSROOT "%s")\nset(CMAKE_OSX_DEPLOYMENT_TARGET "%s")\nset(CMAKE_OSX_ARCHITECTURES "%s")\n' \
+    "$2" "$3" "$4" > "$1"
+}
+
+write_x86_cmake_toolchain() { write_cmake_toolchain "$1" "$2" "$MACOS_MIN" x86_64; }
+
+write_pinned_cc() {
+  printf '#!/bin/sh\nexec /usr/bin/clang -isysroot "%s" "$@"\n' "$2" > "$1"
+  chmod +x "$1"
 }
 
 # platform: clang-22's clang.cfg auto-links <CFGDIR>/../lib/libMacportsLegacySupport.a, its own
