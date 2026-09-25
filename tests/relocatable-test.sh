@@ -1,8 +1,5 @@
 #!/bin/sh
-# SKIP (77) only if NEITHER variant is staged. Audit every staged variant's WHOLE prefix (bin + lib):
-# no shipped Mach-O may name an unshippable absolute path (the build scratch dir, clang-22, or a package
-# manager like /opt/pkg). The native path is audited too -- run #3 shipped a bin/cargo linking
-# /opt/pkg that a single-binary guard missed; this all-of-bin/lib sweep is what catches it.
+# platform: macOS-only -- otool via build/verify-relocatable.sh
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
