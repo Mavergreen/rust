@@ -2,11 +2,12 @@
 # Package the staged cross toolchain as a component .pkg. NO 10.9.5 install floor: this pkg RUNS on
 # modern macOS (arm64) and only TARGETS 10.9 (golang/clang cross-pkg precedent). Emits build-info-cross.txt.
 set -eu
+RUST_VARIANT=cross; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 export COPYFILE_DISABLE=1
-STAGE_ROOT="$WORK/stage"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
+STAGE_ROOT="$CROSS_STAGE_ROOT"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
 [ -x "$STAGE/bin/rustc" ] || { echo "FATAL: run build-cross.sh first" >&2; exit 1; }
 VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")")"
 DIST="$HERE/../dist"; mkdir -p "$DIST"

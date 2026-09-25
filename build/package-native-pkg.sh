@@ -4,11 +4,12 @@
 # bare component pkg cannot express it (an OS floor is a productbuild/Distribution concept). Emits
 # build-info-native.txt, which MUST agree with build-info-cross.txt on rust/clang/legacy_support/target.
 set -eu
+RUST_VARIANT=native; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 export COPYFILE_DISABLE=1
-STAGE_ROOT="$WORK/stage-native"; STAGE="$STAGE_ROOT$NATIVE_PREFIX"
+STAGE_ROOT="$NATIVE_STAGE_ROOT"; STAGE="$STAGE_ROOT$NATIVE_PREFIX"
 [ -x "$STAGE/bin/rustc" ] || { echo "FATAL: run build-native.sh first" >&2; exit 1; }
 VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")")"
 DIST="$HERE/../dist"; mkdir -p "$DIST"

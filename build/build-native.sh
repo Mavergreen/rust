@@ -11,10 +11,11 @@
 # process shelling out to an arm64 clang is fine. If bootstrap refuses the build/host arch mismatch, the
 # brief's fallback is `arch -x86_64` with a universal python (/usr/bin/python3).
 set -eu
+RUST_VARIANT=native; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"; export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
-NATIVE_STAGE_ROOT="$WORK/stage-native"; STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
+STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
 
 if [ -x "$STAGE/bin/rustc" ] && [ -x "$STAGE/bin/cargo" ]; then
   echo ">> already staged at $STAGE"; "$STAGE/bin/rustc" --version; exit 0

@@ -3,13 +3,14 @@
 # built with the clang-22 cross toolchain + the macports-legacy-support shim. Staged under
 # $WORK/stage$CROSS_PREFIX via DESTDIR. Idempotent-ish: skips the heavy x.py step if already staged.
 set -eu
+RUST_VARIANT=cross; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 . "$HERE/lib-rust.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
-STAGE_ROOT="$WORK/stage"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
+STAGE_ROOT="$CROSS_STAGE_ROOT"; STAGE="$STAGE_ROOT$CROSS_PREFIX"
 
 if [ -x "$STAGE/bin/rustc" ] && [ -x "$STAGE/bin/cargo" ]; then
   echo ">> already staged at $STAGE"; exit 0

@@ -63,7 +63,7 @@ while IFS= read -r f; do
   if [ -n "$hits" ]; then
     bad=$((bad+1))
     echo "FAIL ${f#"$P"/}"
-    printf '%s' "$hits" | sed "s#$WORK#<WORK>#g;s/^/    /"
+    printf '%s' "$hits" | sed "s#$WORK_ROOT#<WORK_ROOT>#g;s/^/    /"
   fi
 done < "$tmp"
 rm -f "$tmp"

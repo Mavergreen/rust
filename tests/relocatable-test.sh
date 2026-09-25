@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
 
 audited=0
-for pair in "cross:$WORK/stage$CROSS_PREFIX" "native:$WORK/stage-native$NATIVE_PREFIX"; do
+for pair in "cross:$CROSS_STAGE_ROOT$CROSS_PREFIX" "native:$NATIVE_STAGE_ROOT$NATIVE_PREFIX"; do
   variant="${pair%%:*}"; stage="${pair#*:}"
   [ -x "$stage/bin/rustc" ] || continue
   echo "== relocatable-test: $variant ($stage) =="

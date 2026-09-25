@@ -8,7 +8,7 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
-STAGE="$WORK/stage-native$NATIVE_PREFIX"
+STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
 RUSTC="$STAGE/bin/rustc"
 [ -x "$RUSTC" ] || { echo "not built -- skipping"; exit 77; }
 

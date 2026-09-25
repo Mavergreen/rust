@@ -7,11 +7,18 @@ set -eu
 TAG="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")"
 [ -n "$TAG" ] || { echo "FATAL: empty components/clang/version" >&2; exit 1; }
 LINE="${TAG%%.*}"                                  # 22 from 22.1.1-mavericks.1
-base="https://github.com/Mavergreen/clang/releases/download/$TAG"
 CACHE="$WORK/clang-dl"; OUT="$WORK/clang-$TAG"
 mkdir -p "$CACHE"
 sums="$CACHE/SHA256SUMS-$TAG"
-curl -fsSL -o "$sums" "$base/SHA256SUMS"
+# spec: docs/superpowers/specs/2026-09-25-rust-plan3a-conformance-design.md "clang rename" --
+#       Mavergreen/clang becomes Mavergreen/clang-22; try the new name first, then the old one.
+base=""
+for repo in clang-22 clang; do
+  if curl -fsSL -o "$sums" "https://github.com/Mavergreen/$repo/releases/download/$TAG/SHA256SUMS"; then
+    base="https://github.com/Mavergreen/$repo/releases/download/$TAG"; break
+  fi
+done
+[ -n "$base" ] || { echo "FATAL: no SHA256SUMS for $TAG under Mavergreen/clang-22 or Mavergreen/clang" >&2; exit 1; }
 # Accept either the current or a future/renamed cross asset prefix.
 pkg_name=""
 for cand in "mavericks-clang-${LINE}-cross-${TAG}.pkg" "clang-${LINE}-cross-${TAG}.pkg"; do
