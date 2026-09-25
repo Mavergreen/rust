@@ -9,7 +9,8 @@ built with.
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ⏳ Plan 3B: `github-tags` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
 | clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ⏳ Plan 3B: `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
 | macports-legacy-support shim (prebuilt) | `components/legacy-support/version` | ⏳ Plan 3B: `github-releases` on `Mavergreen/macports-legacy-support`, `-mavericks.N` versioning | repackage |
-| MacOSX10.9 SDK | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
+| MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
+| MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
 The legacy-support pin is a whole file, not the preset's `# mavericks-legacysupport` marker line,
 because `release-state.sh` reads a `path:KEY` entry as a line starting `KEY=`: an `export`ed,
@@ -37,6 +38,14 @@ here as an ingredient, and delete both files and `augment_shim`'s compile loop. 
 - A pkgsrc toolchain on the build host must never leak into the product. The guards are
   `CMAKE_IGNORE_PREFIX_PATH` plus optional LLVM deps off, and `PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig`
   for cargo's `*-sys` crates. `build/verify-relocatable.sh` fails the build if anything leaks anyway.
+
+## Build equivalence (native, cross-hosted vs on 10.9)
+
+The two ways of building the native toolchain ship the same files (same `build-info-native.txt`, same
+payload list once crate-hash suffixes are normalized), but not the same bytes. Crate hashes differ with
+the stage0 and build triple, and the cross-hosted build's LLVM also has the AArch64 backend, because its
+build triple is aarch64 and bootstrap's `[llvm] targets` covers every LLVM it builds. The on-box
+build's LLVM is X86 only.
 
 ## Single upstream — why no `lines/`
 

@@ -52,7 +52,7 @@ wrap_rustc "$STAGE" always
 wrap_linking_tool "$STAGE" clippy-driver always
 prune_proc_macro_dylibs "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
-sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$STAGE/bin/rustc.bin"
+guard_prefix "$STAGE"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
 stage_stamp native > "$WORK/staged.stamp"
 echo ">> native ($MODE) staged at $STAGE"

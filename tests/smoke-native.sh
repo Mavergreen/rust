@@ -17,7 +17,8 @@ done > "$list"
 while IFS= read -r f; do
   lipo -info "$f" | grep -q 'architecture: x86_64$' || fail "$f is not thin x86_64"
 done < "$list"
-tr '\n' '\0' < "$list" | xargs -0 sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh"
+. "$ROOT/build/lib-rust.sh"
+guard_prefix "$S"
 
 if [ "$(sh "$SHIPYARD_SCRIPTS/mavericks_mode.sh")" = native ]; then
   t="$(mktemp -d "${TMPDIR:-/tmp}/mavnat.XXXXXX")"; trap 'rm -rf "$t" "$list"' EXIT

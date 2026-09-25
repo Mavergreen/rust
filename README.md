@@ -12,7 +12,8 @@ on 10.9.
 | `rust-<version>.pkg` | Mac OS X 10.9.5 and later on Intel (including modern macOS on Intel) | `/usr/local/mavergreen/rust` |
 | `rust-cross-<version>.pkg` | macOS 11 and later on Apple Silicon | `/usr/local/mavergreen/rust-cross` |
 
-Both produce x86_64 binaries for 10.9. Installer refuses the package that doesn't fit the Mac.
+Both produce x86_64 binaries for 10.9. The cross package is arm64-only, so Installer refuses it on an
+Intel Mac; on Apple Silicon, use the cross package (the native one would ask for Rosetta).
 With the cross package, set `SDKROOT` to a Mac OS X 10.9 SDK to link against it rather than the
 running macOS's SDK; that is how this project's own builds and tests link.
 

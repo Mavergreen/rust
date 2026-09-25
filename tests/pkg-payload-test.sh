@@ -5,11 +5,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 D="${PKG_DIR:-$ROOT/dist}"
 fail() { echo "FAIL $1"; exit 1; }
 n=0
-for short in rust rust-cross; do
-  pkg="$(ls "$D"/"$short"-[0-9]*.pkg 2>/dev/null | head -1)"
-  [ -n "$pkg" ] || continue
+t="$(mktemp -d "${TMPDIR:-/tmp}/pkgpayload.XXXXXX")"; trap 'rm -rf "$t"' EXIT
+for pkg in "$D"/rust-[0-9]*.pkg "$D"/rust-cross-[0-9]*.pkg; do
+  [ -f "$pkg" ] || continue
+  case "$(basename "$pkg")" in rust-cross-*) short=rust-cross ;; *) short=rust ;; esac
   n=$((n+1))
-  t="$(mktemp -d "${TMPDIR:-/tmp}/pkgpayload.XXXXXX")"
+  rm -rf "$t/x" "$t/f" "$t/list"
   pkgutil --expand "$pkg" "$t/x"
   boms="$(find "$t/x" -name Bom)"
   [ -n "$boms" ] || fail "$short: no component Bom in $pkg"
@@ -29,7 +30,6 @@ for short in rust rust-cross; do
   for b in rustc clippy-driver; do
     printf '%s\n' "$ex" | grep -q "bin/$b.bin" || fail "$short: manifest must exclude bin/$b.bin from the link farm (bin/$b is its back-fill wrapper)"
   done
-  rm -rf "$t"
 done
 [ "$n" -gt 0 ] || { echo "no pkg built -- skipping"; exit 77; }
 echo "OK pkg-payload-test ($n)"

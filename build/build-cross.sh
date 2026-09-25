@@ -43,9 +43,9 @@ ARM64_LINKER="$WORK/bin/cc-arm64-pinned" \
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via clang-22; LLVM from source) =="
-# platform: pkgsrc's pkg-config pc_path leads with /opt/pkg/lib/pkgconfig, so cargo's *-sys crates
-#           linked bin/cargo against /opt/pkg dylibs until PKG_CONFIG_LIBDIR named the system dir only
-# platform: clang-22 defaults to an x86_64/10.9 target, so on PATH it would shadow the arm64 host compiler
+# platform: pkgsrc's pkg-config pc_path leads with /opt/pkg/lib/pkgconfig, where cargo's *-sys crates
+#           find libgit2, zlib and libcurl
+# platform: clang-22 defaults to an x86_64/10.9 target
 ( cd "$SRC" && \
   PATH="$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
   CMAKE_TOOLCHAIN_FILE_aarch64_apple_darwin="$WORK/aarch64-11.0.cmake" \
@@ -69,6 +69,8 @@ prune_proc_macro_dylibs "$STAGE"
 echo "== relocate (bundle runtimes, rewrite rpaths) =="
 relocate_prefix "$STAGE" "$CLANGDIR"
 
+guard_prefix "$STAGE"
+sh "$HERE/verify-relocatable.sh" "$STAGE"
 stage_stamp cross > "$WORK/staged.stamp"
 echo ">> staged cross toolchain at $STAGE"
 "$STAGE/bin/rustc" --version

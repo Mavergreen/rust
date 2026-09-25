@@ -23,8 +23,8 @@ sanitizers = false
 profiler = false
 
 EOF
-    # platform: 10.9's system OpenSSL is 0.9.8, too old for cargo, so openssl-src is vendored
-    # platform: 10.9's zlib 1.2.5 lacks z_const, so curl-sys cannot build libcurl; use the system one
+    # platform: 10.9's system OpenSSL is 0.9.8, older than cargo's openssl crate accepts
+    # platform: 10.9's zlib is 1.2.5, which lacks z_const; curl-sys needs it to build libcurl from source
     cat <<EOF
 [build.tool.cargo]
 features = ["vendored-openssl", "curl/force-system-lib-on-osx"]
@@ -56,7 +56,7 @@ EOF
   } > "$_src/bootstrap.toml"
 }
 
-# spec: docs/superpowers/plans/2026-09-25-rust-plan3a-conformance.md Task 3 ruling -- bootstrap 1.95
+# spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 3 cmake ruling -- bootstrap 1.95
 #       has no [build] cmake key; its sanity check and the cmake crate run `cmake` from PATH ($CMAKE)
 cmake_shim_dir() {
   _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
@@ -76,8 +76,8 @@ write_pinned_cc() {
   chmod +x "$1"
 }
 
-# platform: clang-22's clang.cfg auto-links <CFGDIR>/../lib/libMacportsLegacySupport.a, its own
-#           bundled copy, so the pinned shim must overwrite it or every link resolves the bundled one
+# platform: clang-22's clang.cfg auto-links <CFGDIR>/../lib/libMacportsLegacySupport.a, a copy
+#           bundled in its pkg
 augment_shim() {
   _poly="$1"; _clang="$2"
   for _src in "$REPO_ROOT"/build/polyfill-*.c; do
@@ -92,8 +92,7 @@ augment_shim() {
   cp -f "$_poly" "$_clang/lib/libMacportsLegacySupport.a"
 }
 
-# platform: rustc puts -lSystem before -C link-args, so on a modern SDK libSystem resolves
-#           clock_gettime first unless the shim archive is force_loaded
+# platform: rustc puts -lSystem before -C link-args, and a modern SDK's libSystem exports clock_gettime
 # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
 #           the linker driver; the last -mmacosx-version-min on the line wins
 wrap_linking_tool() {
@@ -109,7 +108,7 @@ while [ -h "\$self" ]; do
   link="\$(readlink "\$self")"
   case "\$link" in /*) self="\$link" ;; *) self="\$(dirname "\$self")/\$link" ;; esac
 done
-S="\$(cd "\$(dirname "\$self")" >/dev/null 2>&1 && pwd)"
+S="\$(cd -P "\$(dirname "\$self")" >/dev/null 2>&1 && pwd)"
 P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
 wants=$_wants
 prev=""
@@ -118,7 +117,10 @@ for a in "\$@"; do
   case "\$a" in --target="$TARGET_TRIPLE") wants=1 ;; esac
   prev="\$a"
 done
-if [ "\$wants" = 1 ] && [ -f "\$P" ]; then
+if [ "\$wants" = 1 ] && [ ! -f "\$P" ]; then
+  echo "$_tool: \$P is missing; without it a 10.9 binary would link post-10.9 symbols" >&2; exit 1
+fi
+if [ "\$wants" = 1 ]; then
   if [ $_passthru = 1 ] && [ "\$#" -gt 0 ]; then
     case "\$1" in rustc|*/rustc|*/rustc.bin)
       first="\$1"; shift
@@ -145,23 +147,26 @@ EOF
 wrap_rustc() { wrap_linking_tool "$1" rustc "$2"; }
 
 # platform: llvm-install-name-tool crashes when run standalone; /usr/bin/install_name_tool does not
+loader_rel() {
+  _sub="$(dirname "$2")"; _sub="${_sub#"$1"/}"
+  _n=1; _r="$_sub"
+  while :; do case "$_r" in */*) _r="${_r#*/}"; _n=$((_n+1)) ;; *) break ;; esac; done
+  _u=""; _i=0
+  case "$_sub" in
+    lib) echo @loader_path ;;
+    lib/*) while [ "$_i" -lt $((_n-1)) ]; do _u="$_u/.."; _i=$((_i+1)); done; echo "@loader_path$_u" ;;
+    *) while [ "$_i" -lt "$_n" ]; do _u="$_u../"; _i=$((_i+1)); done; echo "@loader_path/${_u}lib" ;;
+  esac
+}
+
 relocate_prefix() {
   _p="$1"; _clang="$2"; NT="/usr/bin/install_name_tool"
-  for d in libc++.1.0.dylib libc++abi.1.0.dylib libunwind.1.0.dylib; do
-    [ -f "$_clang/lib/$d" ] && cp -f "$_clang/lib/$d" "$_p/lib/$d"
-  done
-  ( cd "$_p/lib"
-    ln -sf libc++.1.0.dylib libc++.1.dylib;       ln -sf libc++.1.dylib libc++.dylib
-    ln -sf libc++abi.1.0.dylib libc++abi.1.dylib; ln -sf libc++abi.1.dylib libc++abi.dylib
-    ln -sf libunwind.1.0.dylib libunwind.1.dylib; ln -sf libunwind.1.dylib libunwind.dylib ) 2>/dev/null || true
-  _py="$(command -v python3 || echo /usr/local/bin/python3)"
   find "$_p/bin" "$_p/lib" -type f 2>/dev/null | while IFS= read -r f; do
     file "$f" 2>/dev/null | grep -q Mach-O || continue
     otool -l "$f" 2>/dev/null | awk '/LC_RPATH/{r=1} r&&/ path /{print $2; r=0}' | while IFS= read -r rp; do
       case "$rp" in "$_clang"/*|"$WORK"/*) "$NT" -delete_rpath "$rp" "$f" 2>/dev/null || true ;; esac
     done
-    rel="$("$_py" -c "import os,sys;print(os.path.relpath('$_p/lib', os.path.dirname(sys.argv[1])))" "$f")"
-    [ "$rel" = "." ] && rel="@loader_path" || rel="@loader_path/$rel"
+    rel="$(loader_rel "$_p" "$f")"
     otool -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
   done
 }
@@ -181,8 +186,8 @@ write_stage0_wrappers() {
   done
 }
 
-# spec: docs/superpowers/plans/2026-09-25-rust-plan3a-conformance.md Task 10 ruling -- a
-#       cross-hosted install leaves rustc's own proc-macro dylibs in lib/; nothing links them
+# spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 10 proof 2 ruling -- a cross-hosted
+#       install leaves rustc's own proc-macro dylibs in lib/; nothing links them
 prune_proc_macro_dylibs() {
   for _d in "$1"/lib/*.dylib; do
     [ -f "$_d" ] && [ ! -h "$_d" ] || continue
@@ -201,4 +206,21 @@ stage_stamp() {
 
 stage_is_current() {
   [ -f "$1" ] && [ "$(cat "$1")" = "$(stage_stamp "$2")" ]
+}
+
+# platform: 10.9's lipo has -info but not -archs
+guard_prefix() {
+  _gd="$(mktemp -d "${TMPDIR:-/tmp}/guard.XXXXXX")"
+  find "$1/bin" "$1/lib" -type f -perm -u+x | while IFS= read -r _f; do
+    case "$(file "$_f")" in *Mach-O*executable*|*Mach-O*"dynamically linked shared library"*) : ;; *) continue ;; esac
+    _a="$(lipo -info "$_f" 2>/dev/null | sed -n 's/.*architecture: //p; s/.* are: //p')"
+    printf '%s\n' "$_f" >> "$_gd/$(printf '%s' "$_a" | tr ' ' '+')"
+  done
+  [ -n "$(ls "$_gd")" ] || { echo "FATAL: no Mach-O under $1 -- nothing guarded" >&2; rm -rf "$_gd"; return 1; }
+  _rc=0
+  for _l in "$_gd"/*; do
+    tr '\n' '\0' < "$_l" | MAVERICKS_ALLOW_ARCHS="$(basename "$_l" | tr '+' ' ')" \
+      xargs -0 sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" || _rc=1
+  done
+  rm -rf "$_gd"; return $_rc
 }

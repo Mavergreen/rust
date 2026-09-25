@@ -18,9 +18,9 @@ got="$(shasum -a 256 "$tb" | awk '{print $1}')"
 rm -rf "$S0/dist"; mkdir -p "$S0/dist"; tar -xf "$tb" -C "$S0/dist"
 D="$S0/dist/$name"
 cp -R "$D/rust-std-$H/lib/rustlib/$H" "$D/rustc/lib/rustlib/"
-# platform: clang-22's clang.cfg would otherwise link the same shim archive a second time
-# platform: dyld's flat-namespace lookup can only find symbols the injected dylib exports, so the shim
-#           is force_loaded; -all_load would also force compiler-rt's os_version_check.o, which needs
+# platform: clang-22's clang.cfg links the shim archive on its own
+# platform: dyld's flat-namespace lookup finds only the symbols an injected dylib exports
+# platform: -all_load also forces compiler-rt's os_version_check.o, which needs
 #           _availability_version_check, absent from 10.9's libSystem
 "$CLANGDIR/bin/clang" --no-default-config -dynamiclib -mmacosx-version-min=10.9 \
   -Wl,-force_load,"$POLY_A" -framework CoreFoundation -framework Security -framework CoreServices -lobjc \
