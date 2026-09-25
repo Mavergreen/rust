@@ -1,13 +1,33 @@
-# mavericks-rust
+# Rust for Mavericks
 
-An unofficial community build of **Rust for Mavericks** — a Rust toolchain that runs on
-modern Apple-Silicon macOS and targets **Mac OS X 10.9 (Mavericks)**. Not affiliated with
-the Rust project or the Rust Foundation.
+A Rust toolchain for **Mac OS X 10.9 (Mavericks)**, as an unofficial community build, not affiliated
+with the Rust project. It is a Mavergreen product: `rustc`, `cargo`, `rustdoc`, `cargo clippy` and
+`cargo fmt`, with the 10.9 back-fills linked in, so a plain `cargo build` produces a binary that runs
+on 10.9.
 
-`cargo build --target x86_64-apple-darwin` produces a working x86_64 10.9 binary with the
-legacy-support polyfill linked — no extra flags.
+## Two packages, one per kind of Mac
 
-## Layout
-- `build/` — the CI cross-build (runs on a modern arm64 runner).
-- `native-bootstrap/rust.sh` — Wowfunhappy's on-10.9 bootstrap, kept for the native build
-  phase; not used by CI.
+| Package | Runs on | Installs to |
+|---|---|---|
+| `rust-<version>.pkg` | Mac OS X 10.9.5 and later on Intel (including modern macOS on Intel) | `/usr/local/mavergreen/rust` |
+| `rust-cross-<version>.pkg` | macOS 11 and later on Apple Silicon | `/usr/local/mavergreen/rust-cross` |
+
+Both produce x86_64 binaries for 10.9. Installer refuses the package that doesn't fit the Mac.
+
+After installing, open a new terminal: `/usr/local/mavergreen/bin` is on every login shell's `PATH`
+through `/etc/paths.d/mavergreen`, and `rustc`, `cargo` and friends are linked there. Tools that
+don't run a login shell (IDEs, launchd jobs) should use `/usr/local/mavergreen/bin/cargo` by path. A
+Sparkle updater keeps the package current. `mavergreen uninstall rust` (or `rust-cross`) removes
+everything the package installed.
+
+## Building it
+
+- `build/build-cross.sh`: the cross toolchain, on an Apple Silicon Mac.
+- `build/build-native.sh`: the 10.9 toolchain. On an Apple Silicon Mac it cross-hosts the build (no
+  Rosetta); on Mac OS X 10.9 itself it builds natively from the same recipe.
+- `build/package-cross-pkg.sh`, `build/package-native-pkg.sh`: the packages, into `dist/`.
+- `tests/`: run with shipyard's `run-repo-tests.sh`.
+
+Builds need the shipyard package (for `shipyard-cmake` and its scripts), plus python3 and ninja on
+`PATH`. Heavy build output goes to `~/.cache/mavergreen-rust`, never into the source tree.
+`INGREDIENTS.md` lists everything that goes into the packages.

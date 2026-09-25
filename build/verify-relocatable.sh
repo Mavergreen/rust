@@ -1,45 +1,23 @@
 #!/bin/sh
-# Flag any Mach-O load command (dependency / install-name / rpath) that names an absolute path the
-# INSTALLED toolchain will not have.
-#
-# The obvious offender is the build scratch dir ($WORK): a dylib whose install_name still points into
-# ~/.cache builds fine and dies on the first machine that is not this one. But the subtler and more
-# likely one is a BUILD-HOST PACKAGE MANAGER: CMake happily finds /opt/pkg (pkgsrc) or /opt/homebrew
-# (a GHA runner) while probing for zstd/zlib/libedit and bakes that path into clang's load commands.
-# The result ships, installs, and fails at first launch on a user's machine with a missing dylib --
-# which a $WORK-only grep would never have caught. So the rule is a WHITELIST, not a blacklist:
-#
-#   allowed: @rpath/@loader_path/@executable_path (relative by construction)
-#            /usr/lib/**, /System/**             (present on every macOS)
-#            $NATIVE_PREFIX/**, $CROSS_PREFIX/** (our own install locations -- the pkgs put us there)
-#   flagged: every other absolute path
-#
-# BOTH prefixes are allowed regardless of which variant is being audited. The alternative -- passing
-# in the one prefix that applies -- buys nothing (a native binary cannot legitimately reference the
-# cross prefix anyway, and the two are distinct paths) and costs a whole class of silent failure: a
-# caller that forgets to set it leaves the pattern empty, "" /* matches every absolute path, and the
-# gate passes everything while appearing to run.
-#
+# platform: macOS-only -- otool reads Mach-O load commands
 #   usage: verify-relocatable.sh <prefix>
+#          Fails if any Mach-O under <prefix>/{bin,lib} names an absolute dependency, install name
+#          or rpath outside @-relative paths, /usr/lib, /System, and the two product prefixes. It is
+#          an allowlist: a build-host package manager (/opt/pkg, /opt/homebrew) baked in by CMake is
+#          caught as surely as the build's own scratch dir.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 P="${1:?usage: verify-relocatable.sh <prefix>}"
+[ -n "$NATIVE_PREFIX" ] && [ -n "$CROSS_PREFIX" ] || { echo "FATAL: empty product prefix would allow every absolute path" >&2; exit 1; }
 n=0; bad=0
-tmp="$(mktemp "${TMPDIR:-/tmp}/verify-relocatable.XXXXXX")"   # template: 10.9 BSD mktemp requires one
-# `|| true`: find exits non-zero when one of these dirs is absent, which under set -e would abort the
-# audit before it printed a thing -- a silent pass is the one outcome a gate must never have.
+tmp="$(mktemp "${TMPDIR:-/tmp}/verify-relocatable.XXXXXX")"
 find "$P/bin" "$P/lib" -type f 2>/dev/null > "$tmp" || true
 [ -s "$tmp" ] || { echo "FATAL: no files under $P/{bin,lib} -- nothing audited" >&2; exit 1; }
-# Read from a FILE, not a pipeline: a `while … | read` runs in a subshell and would lose n/bad.
 while IFS= read -r f; do
-  # Audit LINKED IMAGES only. A static archive must be excluded explicitly, not by accident: `file`
-  # calls a fat one "Mach-O universal binary ... [x86_64:current ar archive]", so a bare Mach-O match
-  # lets it through, and `otool -L` on an archive prints a header line per MEMBER --
-  # "/path/libclang_rt.osx.a(divtc3.c.o):" -- which reads exactly like an absolute dependency and
-  # fails the gate forever. Archives carry no load commands that ship anyway; their members' symbols
-  # are resolved at the final link, which is what tests/smoke-target.sh actually checks.
   desc="$(file "$f" 2>/dev/null)"
+  # platform: `file` calls a fat static archive "Mach-O universal binary ... ar archive", and
+  #           `otool -L` on an archive prints one "/path/lib.a(member.o):" line per member
   case "$desc" in
     *"ar archive"*) continue ;;
     *Mach-O*executable*|*Mach-O*"shared library"*|*Mach-O*bundle*) : ;;
@@ -53,9 +31,9 @@ while IFS= read -r f; do
   hits=""
   for p in $paths; do
     case "$p" in
-      @*|"") continue ;;                       # @rpath &c -- relative by construction
-      /usr/lib/*|/System/*) continue ;;        # on every macOS
-      "$NATIVE_PREFIX"/*|"$CROSS_PREFIX"/*) continue ;;   # where the pkgs actually install us
+      @*|"") continue ;;
+      /usr/lib/*|/System/*) continue ;;
+      "$NATIVE_PREFIX"/*|"$CROSS_PREFIX"/*) continue ;;
       /*) hits="$hits$p
 " ;;
     esac

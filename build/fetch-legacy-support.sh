@@ -1,10 +1,8 @@
 #!/bin/sh
-# Fetch the PREBUILT x86_64/10.9 legacy-support shim (static .a + wrapper headers) from the
-# mavericks-legacysupport release. No from-source build here: the family already ports
-# macports-legacy-support and publishes a .pkg, and re-deriving it would be a second answer to
-# "which shim is baked in?". Integrity is re-checked against the release's SHA256SUMS EVERY run, so
-# a poisoned download cache cannot silently change the shipped archive.
-# Prints the path of the extracted .a on stdout; everything else goes to stderr.
+# platform: macOS-only -- pkgutil, lipo
+#   usage: fetch-legacy-support.sh     prints the extracted libMacportsLegacySupport.a; the
+#          prebuilt x86_64/10.9 shim from the pinned Mavergreen/macports-legacy-support release,
+#          re-verified against that release's SHA256SUMS on every run
 set -eu
 . "$(cd "$(dirname "$0")" && pwd)/versions.sh"
 : "${MLS_VERSION:?set MLS_VERSION}"
@@ -19,7 +17,6 @@ base="https://github.com/Mavergreen/macports-legacy-support/releases/download/$t
 mkdir -p "$CACHE"
 pkg="$CACHE/$pkg_name"; sums="$CACHE/SHA256SUMS"
 
-# Download once, atomically (tmp+mv) so an interrupted fetch cannot poison the cache.
 if [ ! -f "$pkg" ]; then
   tmp="$pkg.tmp.$$"; curl -fsSL -o "$tmp" "$base/$pkg_name"; mv "$tmp" "$pkg"
 fi
@@ -29,7 +26,6 @@ want=$(awk -v f="$pkg_name" '$2==f {print $1}' "$sums")
 got=$(shasum -a 256 "$pkg" | awk '{print $1}')
 [ "$want" = "$got" ] || { echo "FATAL: legacy-support pkg sha mismatch: $got != $want" >&2; rm -f "$pkg"; exit 1; }
 
-# Extract the prebuilt static lib + headers from the pkg payload (no root, no compile).
 exp="$CACHE/expanded"; rm -rf "$exp"
 pkgutil --expand-full "$pkg" "$exp" 1>&2
 a_src=$(find "$exp" -type f -name libMacportsLegacySupport.a | head -1)
@@ -41,8 +37,6 @@ cp "$usrlocal/lib/libMacportsLegacySupport.a" "$OUT/lib/"
 cp -R "$usrlocal/include/LegacySupport" "$OUT/include/"
 test -f "$A" || { echo "FATAL: no static .a extracted" >&2; exit 1; }
 
-# The shim must actually be for the target we cross-build against, not the host. A .a that is
-# arm64-only would link nothing and fail far later, inside the libc++ runtimes build.
 lipo -info "$A" 2>/dev/null | sed -n 's/.*: //p' | grep -qw x86_64 \
   || { echo "FATAL: $A has no x86_64 slice (archs: $(lipo -info "$A" 2>&1 | sed -n 's/.*: //p'))" >&2; exit 1; }
 

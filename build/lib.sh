@@ -4,30 +4,9 @@ export MAVERICKS_ROOT
 . "$MAVERICKS_ROOT/build/msc.sh"
 . "$SHIPYARD/lib.sh"
 
-# How many compile jobs an LLVM build may run at once.
-#
-# NOT just $(sysctl -n hw.ncpu). LLVM's heavier C++ translation units (DAGCombiner,
-# LegalizeVectorTypes, the SelectionDAG family) peak well above 1GB of compiler memory each, so one
-# job per core needs far more RAM than a core-count implies. On a 16GB box with swap disabled --
-# `sysctl vm.swapusage` reporting total = 0.00M, which is not exotic on a tuned workstation -- the
-# kernel simply SIGKILLs the compiler, and ninja reports the useless
-#
-#   build-native.sh: line NN: 27975 Killed: 9    ninja -C ... -j 8
-#
-# with no error above it to explain why. Measured here: -j8 died around 2000/4353 objects.
-#
-# So cap on BOTH cores and memory, at roughly 3GB per job. A CI runner with plenty of RAM is unaffected
-# (its core count stays the binding constraint); a memory-tight machine slows down instead of failing.
-# Override with MAVERICKS_JOBS when you know better than the heuristic.
-# --- CI-only helpers (env-guarded; a plain local build sets neither var and is unaffected) -------
-
-# ccache launcher flags for cmake, only when explicitly requested AND ccache is present.
-mav_ccache_args() {
-  if [ "${MAVERICKS_USE_CCACHE:-}" = 1 ] && command -v ccache >/dev/null 2>&1; then
-    printf '%s' "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-  fi
-}
-
+# platform: LLVM's heaviest C++ translation units (DAGCombiner, the SelectionDAG family) each peak
+#           above 1 GB of compiler memory; on a 16 GB box without swap, -j8 was SIGKILLed ("Killed: 9",
+#           nothing else) around 2000 of 4353 objects
 mavericks_build_jobs() {
   if [ -n "${MAVERICKS_JOBS:-}" ]; then printf '%s\n' "$MAVERICKS_JOBS"; return 0; fi
   _ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
