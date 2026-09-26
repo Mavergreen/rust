@@ -6,9 +6,9 @@ built with.
 
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
-| Rust source (own upstream) | `UPSTREAM_VERSION` | ⏳ Plan 3B: `github-tags` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
-| clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ⏳ Plan 3B: `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
-| macports-legacy-support shim (prebuilt) | `components/legacy-support/version` | ⏳ Plan 3B: `github-releases` on `Mavergreen/macports-legacy-support`, `-mavericks.N` versioning | repackage |
+| Rust source (own upstream) | `UPSTREAM_VERSION` | ✅ `github-releases` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
+| clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ✅ `github-releases` on `Mavergreen/clang` (becomes `clang-22` at the rename), `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
+| macports-legacy-support shim (prebuilt) | `components/legacy-support/version` | ✅ `github-releases` on `Mavergreen/macports-legacy-support`, `-mavericks.N` versioning | repackage |
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
