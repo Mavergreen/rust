@@ -1,0 +1,186 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      local_release:
+        description: "Cut a -mavericks.(N+1) repackage of the current upstream"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# spec: shipyard SKILL.md "Release workflow" -- a run that can publish is alone in its group
+concurrency:
+  group: >-
+    release-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ver:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.full }}
+      publish: ${{ steps.ver.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - id: ver
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LOCAL_RELEASE: ${{ inputs.local_release }}
+        run: |
+          set -eu
+          mode="$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")"
+          out="$(sh build/version.sh "$mode")"
+          full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
+          rel="$(printf '%s\n' "$out" | sed -n 's/^RELEASE=//p')"
+          [ -n "$full" ] || { echo "::error::version.sh gave no FULL= line: $out"; exit 1; }
+          [ "$GITHUB_REF_NAME" = main ] || rel=no
+          { echo "full=$full"; echo "release=$rel"; } >> "$GITHUB_OUTPUT"
+          echo "version=$full publish=$rel"
+
+  build:
+    needs: ver
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [native, cross]
+    name: build-${{ matrix.variant }}
+    runs-on: macos-26
+    timeout-minutes: 355
+    env:
+      MAVERICKS_USE_CCACHE: "1"
+      CCACHE_COMPILERCHECK: "%compiler% --version"
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Ensure ccache and ninja
+        run: |
+          command -v ccache >/dev/null 2>&1 || brew install ccache
+          command -v ninja >/dev/null 2>&1 || brew install ninja
+      - name: Restore ccache
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
+          restore-keys: ccache-${{ matrix.variant }}-
+      - name: Build
+        id: build
+        run: sh build/build-${{ matrix.variant }}.sh
+      # spec: shipyard SKILL.md "Release workflow" -- a cache key can't be overwritten, so a run that
+      #       fails late saves under a per-run key the restore-keys prefix still finds
+      - name: Save ccache even when the build or a later step fails
+        if: ${{ !cancelled() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Package
+        run: sh build/package-${{ matrix.variant }}-pkg.sh
+      - name: Tests
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
+      - name: Disk used
+        if: always()
+        run: |
+          df -h "$HOME" | tail -1
+          du -sh "$HOME/.cache/mavergreen-rust" 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.variant }}
+          path: |
+            dist/*.pkg
+            dist/build-info-*.txt
+      - name: The build must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  collect:
+    needs: [ver, build]
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - uses: actions/download-artifact@v8
+        with: { pattern: dist-*, merge-multiple: true, path: dist }
+      - name: Ingredient pins are well declared
+        run: sh "$SHIPYARD_SCRIPTS/check-ingredient-pins.sh"
+      - name: Release notes
+        run: |
+          set -eu
+          V="${{ needs.ver.outputs.version }}"
+          sh "$SHIPYARD_SCRIPTS/release-notes.sh" --tag "$V" --version "$V" \
+            --product Rust --min-os 10.9.5 --out dist/RELEASE_NOTES.md
+      - name: Record the declared state in the notes
+        run: |
+          set -eu
+          digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+          sh "$SHIPYARD_SCRIPTS/release-state-record.sh" --notes-file dist/RELEASE_NOTES.md --digest "$digest"
+      - name: Sign both pkgs and write their feeds
+        if: needs.ver.outputs.publish == 'yes'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          printenv SPARKLE_PRIVATE_KEY | grep -q . || { echo "::error::SPARKLE_PRIVATE_KEY is not visible to this repo"; exit 1; }
+          V="${{ needs.ver.outputs.version }}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$V"
+          sh "$SHIPYARD_SCRIPTS/sign_and_appcast.sh" --product rust --feed-dir dist \
+            --channel-title "Rust for Mavericks" --version "$V" --pkg-url "$base/rust-$V.pkg" \
+            --notes-file dist/RELEASE_NOTES.md --pkg "dist/rust-$V.pkg" --min-os 10.9.5
+          sh "$SHIPYARD_SCRIPTS/sign_and_appcast.sh" --product rust-cross --feed-dir dist \
+            --channel-title "Rust for Mavericks (cross)" --version "$V" --pkg-url "$base/rust-cross-$V.pkg" \
+            --notes-file dist/RELEASE_NOTES.md --pkg "dist/rust-cross-$V.pkg" --min-os 11.0
+      - name: Unsigned stand-in feeds (never published)
+        if: needs.ver.outputs.publish != 'yes'
+        run: sh "$SHIPYARD_SCRIPTS/stand-in-feeds.sh" dist "${{ needs.ver.outputs.version }}"
+      - name: Artifact conformance
+        run: |
+          set -eu
+          facts="$(sh "$SHIPYARD_SCRIPTS/artifact-facts.sh" dist "${{ needs.ver.outputs.version }}")"
+          printf '%s\n' "$facts" | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
+      - name: Each feed is an upgrade on its line
+        if: needs.ver.outputs.publish == 'yes'
+        run: |
+          set -eu
+          for f in rust rust-cross; do
+            sh "$SHIPYARD_SCRIPTS/assert_appcast_upgradeable.sh" --appcast "dist/$f.xml" \
+              --version "${{ needs.ver.outputs.version }}"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mavergreen-rust
+          path: |
+            dist/*.pkg
+            dist/build-info-*.txt
+            dist/RELEASE_NOTES.md
+            dist/*.xml
+
+  scan:
+    needs: [ver, collect]
+    if: always() && needs.ver.outputs.publish == 'yes'
+    permissions: { actions: read, contents: read }
+    uses: Mavergreen/shipyard/.github/workflows/scan-for-key.yml@v1
+    with: { artifact: mavergreen-rust }
+    secrets: { SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_PRIVATE_KEY }}" }
+
+  publish:
+    needs: [ver, collect, scan]
+    if: needs.ver.outputs.publish == 'yes'
+    permissions: { contents: write }
+    uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
+    with: { version: "${{ needs.ver.outputs.version }}", artifact: mavergreen-rust }
