@@ -49,8 +49,9 @@ clippy_ws() {
   L "cd '$w/ws' && cargo clippy -q && cargo build -q && [ \"\$(./target/debug/app)\" = '42 0' ] && cargo test -q --doc -p app"
 }
 uninstall() {
-  sudo /usr/local/bin/mavergreen uninstall rust && [ ! -e /usr/local/mavergreen/rust ] &&
-    ! pkgutil --pkgs | grep -qx dev.mavergreen.rust.rust
+  sudo /usr/local/bin/mavergreen uninstall rust || return 1
+  [ ! -e /usr/local/mavergreen/rust ] || return 1
+  if pkgutil --pkgs | grep -qx dev.mavergreen.rust.rust; then return 1; fi
 }
 step fetch-and-verify fetch
 step install install_pkg
