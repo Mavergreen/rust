@@ -58,4 +58,8 @@ grep -qx 'set(CMAKE_OSX_SYSROOT "/sdk113")' "$t/arm.cmake" && grep -qx 'set(CMAK
   || fail "arm64 toolchain: the aarch64 LLVM tools shipped minos 27.0 without one"
 write_pinned_cc "$t/pcc" /sdk113
 [ -x "$t/pcc" ] && grep -q 'exec /usr/bin/clang -isysroot "/sdk113" "\$@"' "$t/pcc" || fail "pinned cc wrapper"
+mkdir -p "$t/cc"
+MAVERICKS_USE_CCACHE=1 write_bootstrap_toml "$t/cc" /p aarch64-apple-darwin aarch64-apple-darwin /c
+grep -qx 'ccache = true' "$t/cc/bootstrap.toml" || fail "MAVERICKS_USE_CCACHE=1 must set [build] ccache = true (LLVM is most of a cold CI build)"
+hasnt cross 'ccache'
 echo "OK bootstrap-toml-test"

@@ -12,6 +12,7 @@ write_bootstrap_toml() {
     if [ -n "$_stage0" ]; then
       printf 'rustc = "%s/bin/rustc"\ncargo = "%s/bin/cargo"\nlocal-rebuild = true\n' "$_stage0" "$_stage0"
     fi
+    if [ "${MAVERICKS_USE_CCACHE:-}" = 1 ]; then printf 'ccache = true\n'; fi
     cat <<EOF
 python = "$_py"
 docs = false
