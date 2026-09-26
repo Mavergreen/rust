@@ -13,7 +13,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 # spec: shipyard SKILL.md "Release workflow" -- a run that can publish is alone in its group
 concurrency:
@@ -29,7 +29,7 @@ jobs:
       publish: ${{ steps.ver.outputs.release }}
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - uses: Mavergreen/shipyard/.github/actions/install@v1
       - id: ver
         env:
@@ -60,7 +60,7 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% --version"
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - uses: Mavergreen/shipyard/.github/actions/install@v1
       - name: Build out of tree
         run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
@@ -81,10 +81,10 @@ jobs:
       - name: Build
         id: build
         run: sh build/build-${{ matrix.variant }}.sh
-      # spec: shipyard SKILL.md "Release workflow" -- a cache key can't be overwritten, so a run that
-      #       fails late saves under a per-run key the restore-keys prefix still finds
+      # spec: docs/superpowers/specs/2026-09-25-rust-plan3b-release-design.md "Caching" -- a cache key
+      #       can't be overwritten, so a run that fails or times out saves under a per-run key
       - name: Save ccache even when the build or a later step fails
-        if: ${{ !cancelled() && steps.build.outcome != 'skipped' }}
+        if: ${{ always() && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v6
         with:
           path: ~/Library/Caches/ccache
@@ -112,7 +112,7 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - uses: Mavergreen/shipyard/.github/actions/install@v1
       - uses: actions/download-artifact@v8
         with: { pattern: dist-*, merge-multiple: true, path: dist }

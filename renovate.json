@@ -1,29 +1,52 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>Mavergreen/shipyard"],
+  "extends": [
+    "github>Mavergreen/shipyard"
+  ],
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^UPSTREAM_VERSION$/"],
-      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "managerFilePatterns": [
+        "/^UPSTREAM_VERSION$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
       "depNameTemplate": "rust-lang/rust",
       "datasourceTemplate": "github-releases"
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^components/clang/version$/"],
-      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "managerFilePatterns": [
+        "/^components/clang/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
       "depNameTemplate": "Mavergreen/clang",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-mavericks\\.(?<build>\\d+)$"
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^components/legacy-support/version$/"],
-      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "managerFilePatterns": [
+        "/^components/legacy-support/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
       "depNameTemplate": "Mavergreen/macports-legacy-support",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-mavericks\\.(?<build>\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "TEMPORARY launch hold: no automerge until 1.95.0-mavericks.1 (the release proven on 10.9 hardware) is published and passes build/check-release-on-10.9.sh. Otherwise a green Rust 1.98.1 PR could merge first and become the first release. Remove this rule at launch step 6 (docs/superpowers/plans/2026-09-25-rust-plan3b-release.md).",
+      "matchPackageNames": [
+        "*"
+      ],
+      "automerge": false
     }
   ]
 }

@@ -19,8 +19,11 @@ step() {
   if ( "$@" ) > "$w/$name.log" 2>&1; then echo "PASS $name"; else echo "FAIL $name (log: $w/$name.log)"; bad=1; fi
 }
 fetch() {
-  curl -fsSL -o "$w/rust-$V.pkg" "$base/rust-$V.pkg" && curl -fsSL -o "$w/SHA256SUMS" "$base/SHA256SUMS" &&
-    ( cd "$w" && grep " rust-$V.pkg\$" SHA256SUMS | shasum -a 256 -c - )
+  curl -fsSL -o "$w/rust-$V.pkg" "$base/rust-$V.pkg" || return 1
+  curl -fsSL -o "$w/SHA256SUMS" "$base/SHA256SUMS" || return 1
+  n="$(grep -c " rust-$V.pkg\$" "$w/SHA256SUMS")"
+  [ "$n" = 1 ] || { echo "rust-$V.pkg is listed $n times in SHA256SUMS"; return 1; }
+  ( cd "$w" && grep " rust-$V.pkg\$" SHA256SUMS | shasum -a 256 -c - )
 }
 install_pkg() { sudo installer -pkg "$w/rust-$V.pkg" -target / && /usr/local/bin/mavergreen check; }
 # platform: /usr/local/mavergreen/bin reaches PATH only through a login shell's paths.d
@@ -54,6 +57,7 @@ uninstall() {
   if pkgutil --pkgs | grep -qx dev.mavergreen.rust.rust; then return 1; fi
 }
 step fetch-and-verify fetch
+[ "$bad" = 0 ] || { echo "SOME FAILED $V -- not installing a pkg that did not verify"; exit 1; }
 step install install_pkg
 step versions versions
 step stress-program stress
