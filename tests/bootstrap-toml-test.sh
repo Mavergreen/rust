@@ -5,6 +5,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"
 export TARGET_TRIPLE MACOS_MIN REPO_ROOT
 . "$ROOT/build/lib-rust.sh"
+unset MAVERICKS_USE_CCACHE
 t="$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-toml.XXXXXX")"; trap 'rm -rf "$t"' EXIT
 fail() { echo "FAIL $1"; exit 1; }
 has() { grep -qF -- "$2" "$t/$1/bootstrap.toml" || fail "$1: missing '$2'"; }
