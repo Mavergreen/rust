@@ -1,0 +1,1 @@
+dist/  # release artifacts (and the ._* sidecars an NFS mount writes beside them); gitignored

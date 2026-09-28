@@ -1,0 +1,17 @@
+# Brainstorm/spec/plan/handoff docs tracked out-of-band (family convention).
+docs/
+.superpowers/
+
+# Packages. Heavy build I/O lives on local disk (~/.cache/mavergreen-rust), outside this repo --
+# see build/versions.sh.
+/dist/
+*.pkg
+*.tar.gz
+*.tar.xz
+
+# Full package version (<upstream>-mavericks.N). Workflow-written, never committed.
+/VERSION
+
+# macOS cruft (._* is what an NFS mount sprays when COPYFILE_DISABLE is unset)
+.DS_Store
+._*
