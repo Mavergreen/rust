@@ -15,3 +15,4 @@ docs/
 # macOS cruft (._* is what an NFS mount sprays when COPYFILE_DISABLE is unset)
 .DS_Store
 ._*
+/.idea/
