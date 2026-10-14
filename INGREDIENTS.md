@@ -16,13 +16,32 @@ built with.
 
 rustc links Recaulk's `librecaulk.a` into every x86_64 binary it links, one of two ways:
 
-- **A linker that already links it** (Mavergreen clang22's `clang++`, `22.1.1-mavericks.7` or
-  later, as `CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER`): the rustc wrapper asks the linker what it
-  links (`-###`), sees `librecaulk.a`, and adds only `-mmacosx-version-min=10.9`. The linker's own
-  configuration supplies the archive, the frameworks and the 10.9 SDK. An older clang22 links the
-  retired macports-legacy-support archive instead and is not supported.
-- **Any other linker** (the default `cc`): the wrapper force-loads the `librecaulk.a` that ships in
-  `lib/rustlib/x86_64-apple-darwin/lib/`, with the frameworks it needs.
+- **A linker that already links it**: Mavergreen clang22's `clang++`, `22.1.1-mavericks.7` or
+  later. The rustc wrapper asks the linker what it links (`-###`), sees `librecaulk.a`, and adds only
+  `-mmacosx-version-min=10.9`. The linker's own configuration supplies the archive, the frameworks
+  and the 10.9 SDK, which the wrapper also hands rustc as `SDKROOT` unless one is set.
+- **Any other linker** (`cc`, named explicitly): the wrapper force-loads the `librecaulk.a` that
+  ships in `lib/rustlib/x86_64-apple-darwin/lib/`, with the frameworks it needs.
+
+## The default linker: clang22
+
+On 10.9 the native pkg's `rustc` and `clippy-driver` link with clang22's `clang++` unless a linker is
+named (`-C linker=…`, however it arrives: `CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER`, cargo config,
+`RUSTFLAGS`, an `@argfile`) or a linker flavour is (`-C linker-flavor=…`, which lets rustc pick the
+linker). Without the Command Line Tools, 10.9's `cc` is the `xcode-select` stub,
+and no family toolchain may need them (shipyard vision area 18 B). Naming `cc` still works where they
+are installed (area 18 D).
+
+- The wrapper finds clang22 next to rust, never on `PATH`: rust's own `deps/clang22/` first, then the
+  shared `clang22/` beside rust's prefix, then the installed `/usr/local/mavergreen/clang22`. The
+  last is for a rust that was unpacked rather than installed, as fd's and rg's builds unpack their
+  pinned toolchain on a developer's 10.9 machine: nothing is beside it, and installing the pin would
+  replace the developer's own rust.
+- With no clang22 there, or one older than `22.1.1-mavericks.7` (it links the retired
+  macports-legacy-support archive and would fail with duplicate symbols), rustc stops and names both
+  remedies: install or update clang22, or name a linker. A call that links nothing (`rustc -vV`,
+  `--version`, cargo's `--print` probes) needs no clang22 and passes through untouched, so cargo
+  itself keeps working and a named linker reaches every compile.
 
 rustc and cargo themselves are linked through clang-22 with this repo's pinned Recaulk, which the
 build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of every binary.

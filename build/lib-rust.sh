@@ -104,7 +104,10 @@ wrap_linking_tool() {
   _p="$1"; _tool="$2"; _mode="$3"
   [ "$(head -c2 "$_p/bin/$_tool" 2>/dev/null)" = '#!' ] && return 0
   mv "$_p/bin/$_tool" "$_p/bin/$_tool.bin"
-  if [ "$_mode" = always ]; then _wants=1; else _wants=0; fi
+  # spec: INGREDIENTS.md "The default linker" -- only the native pkg (mode always) names a
+  #       default linker; rust-cross keeps rustc's own default until the flag day merges the two
+  if [ "$_mode" = always ]; then _wants=1; _default=1; else _wants=0; _default=0; fi
+  _inst=""; [ $_default = 0 ] || _inst="$(dirname "${NATIVE_PREFIX:?wrap_linking_tool: NATIVE_PREFIX is unset}")"
   if [ "$_tool" = rustc ]; then _passthru=0; else _passthru=1; fi
   cat > "$_p/bin/$_tool" <<EOF
 #!/bin/sh
@@ -118,11 +121,19 @@ P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wants=$_wants
 prev=""
 linker=""
+flavor=0
+nolink=0
+# platform: rustc stops after printing for every --print request but link-args and native-static-libs
+printed() { case "\$1" in link-args|native-static-libs) : ;; *) nolink=1 ;; esac; }
 scan() {
+  case "\$1" in -V|-vV|-Vv|--version|-h|--help|--explain|--explain=*) nolink=1 ;; --print=*) printed "\${1#--print=}" ;; esac
+  [ "\$prev" != "--print" ] || printed "\$1"
   [ "\$prev" = "--target" ] && [ "\$1" = "$TARGET_TRIPLE" ] && wants=1
   case "\$1" in --target="$TARGET_TRIPLE") wants=1 ;; esac
   case "\$prev" in -C|--codegen) case "\$1" in linker=*) linker="\${1#linker=}" ;; esac ;; esac
   case "\$1" in -Clinker=*) linker="\${1#-Clinker=}" ;; --codegen=linker=*) linker="\${1#--codegen=linker=}" ;; esac
+  case "\$prev" in -C|--codegen) case "\$1" in linker-flavor=*) flavor=1 ;; esac ;; esac
+  case "\$1" in -Clinker-flavor=*|--codegen=linker-flavor=*) flavor=1 ;; esac
   prev="\$1"
 }
 # platform: cargo retries rustc with one @argfile (an argument per line) when argv exceeds ARG_MAX
@@ -132,21 +143,67 @@ for a in "\$@"; do
     *) scan "\$a" ;;
   esac
 done
+# spec: INGREDIENTS.md "The default linker" -- cargo runs rustc -vV (and --print probes) with no linker
+#       named, so a call that links nothing needs no clang22 and gets nothing added
+[ "\$nolink" = 0 ] || wants=0
 if [ "\$wants" = 1 ] && [ ! -f "\$P" ]; then
   echo "$_tool: \$P is missing; without it a 10.9 binary would link post-10.9 symbols" >&2; exit 1
+fi
+named=0
+# platform: on 10.9 without the Command Line Tools rustc's default linker, cc, is the xcode-select stub
+# spec: INGREDIENTS.md "The default linker" -- clang22 is found next to rust (its own
+#       deps/ first, then the shared sibling), then installed (an unpacked rust has neither beside
+#       it), never by PATH, and its absence is an error, not cc
+if [ "\$wants" = 1 ] && [ $_default = 1 ] && [ -z "\$linker" ] && [ "\$flavor" = 0 ]; then
+  R="\$(cd -P "\$S/.." >/dev/null 2>&1 && pwd)"
+  sib="\$(dirname "\$R")/clang22/bin/clang++"
+  inst="$_inst/clang22/bin/clang++"
+  [ "\$inst" != "\$sib" ] || inst=""
+  for c in "\$R/deps/clang22/bin/clang++" "\$sib" "\${inst:-\$sib}"; do
+    [ -x "\$c" ] && { linker="\$c"; named=1; break; }
+  done
+  if [ "\$named" = 0 ]; then
+    if [ -n "\$inst" ]; then where="\$R/deps/clang22/bin/clang++, \$sib and \$inst"; else where="\$R/deps/clang22/bin/clang++ and \$sib"; fi
+    echo "$_tool: no clang22 next to rust or installed (looked in \$where); install clang22, or name a linker (-C linker=cc) to use the Command Line Tools" >&2
+    exit 1
+  fi
 fi
 if [ "\$wants" = 1 ]; then
   defer=0
   # platform: a clang driver that loads a .cfg reports the config's link inputs under -###, so the
   #           linker itself says whether it already links librecaulk.a (Mavergreen clang22 does)
+  ran=0
   if [ -n "\$linker" ] && probe="\$("\$linker" -### /dev/null </dev/null 2>&1)"; then
+    ran=1
     case "\$probe" in */librecaulk.a*) defer=1 ;; esac
+  fi
+  # spec: INGREDIENTS.md "The default linker" -- an older clang22 links its own back-fill
+  #       archive, so force-loading Recaulk beside it fails with duplicate symbols
+  if [ "\$named" = 1 ] && [ "\$ran" = 0 ]; then
+    echo "$_tool: \$linker fails to run (-###); reinstall clang22, or name a linker (-C linker=cc) to use the Command Line Tools" >&2
+    exit 1
+  fi
+  if [ "\$named" = 1 ] && [ "\$defer" = 0 ]; then
+    echo "$_tool: \$linker does not link Recaulk's librecaulk.a (clang22 older than 22.1.1-mavericks.7); update clang22, or name a linker (-C linker=cc) to use the Command Line Tools" >&2
+    exit 1
   fi
   first=0
   if [ $_passthru = 1 ] && [ "\$#" -gt 0 ]; then
     case "\$1" in rustc|*/rustc|*/rustc.bin) first="\$1"; shift ;; esac
   fi
-  if [ "\$defer" = 1 ]; then
+  # platform: with no SDKROOT rustc runs xcrun on every link to find an SDK, and without the Command
+  #           Line Tools xcrun is 10.9's stub; a clang22 carries its own 10.9 SDK beside its bin/
+  if [ $_default = 1 ] && [ "\$defer" = 1 ] && [ -z "\${SDKROOT:-}" ]; then
+    case "\$linker" in */*) lp="\$linker" ;; *) lp="\$(command -v "\$linker" 2>/dev/null)" || lp="" ;; esac
+    while [ -n "\$lp" ] && [ -h "\$lp" ]; do
+      l="\$(readlink "\$lp")"
+      case "\$l" in /*) lp="\$l" ;; *) lp="\$(dirname "\$lp")/\$l" ;; esac
+    done
+    [ -z "\$lp" ] || [ ! -d "\$(dirname "\$lp")/../SDKs/MacOSX10.9.sdk" ] || { SDKROOT="\$(dirname "\$lp")/../SDKs/MacOSX10.9.sdk"; export SDKROOT; }
+  fi
+  if [ "\$named" = 1 ]; then
+    set -- -C "linker=\$linker" -C link-arg=-mmacosx-version-min=$MACOS_MIN "\$@"
+  elif [ "\$defer" = 1 ]; then
     set -- -C link-arg=-mmacosx-version-min=$MACOS_MIN "\$@"
   else
     set -- -C link-arg=-Wl,-force_load,"\$P" \\
