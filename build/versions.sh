@@ -18,9 +18,9 @@ export RUST_SRC_URL="https://static.rust-lang.org/dist/rustc-${RUST_VERSION}-src
 export RUST_SRC_SHA_URL="${RUST_SRC_URL}.sha256"
 
 export CLANG_PIN_FILE="$REPO_ROOT/components/clang/version"
-export MLS_PIN_FILE="$REPO_ROOT/components/legacy-support/version"
-MLS_VERSION="$(tr -d ' \t\n' < "$MLS_PIN_FILE")"; export MLS_VERSION
-[ -n "$MLS_VERSION" ] || { echo "versions.sh: empty $MLS_PIN_FILE" >&2; exit 1; }
+export RECAULK_PIN_FILE="$REPO_ROOT/components/recaulk/version"
+RECAULK_VERSION="$(tr -d ' \t\n' < "$RECAULK_PIN_FILE")"; export RECAULK_VERSION
+[ -n "$RECAULK_VERSION" ] || { echo "versions.sh: empty $RECAULK_PIN_FILE" >&2; exit 1; }
 
 export TARGET_TRIPLE="x86_64-apple-darwin"
 export MACOS_MIN="10.9"

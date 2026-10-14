@@ -25,12 +25,12 @@ export CLANG_VARIANT
 mkdir -p "$WORK"
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
-POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
+RECAULK_A="$(fetch_recaulk)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
-augment_shim "$POLY_A" "$CLANGDIR"
+install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
 STAGE0=""
-if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0-onbox.sh" "$CLANGDIR" "$POLY_A")"; fi
+if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0-onbox.sh" "$CLANGDIR" "$RECAULK_A")"; fi
 write_bootstrap_toml "$SRC" "$NATIVE_PREFIX" "$BUILD_TRIPLE" "$TARGET_TRIPLE" "$CLANGDIR" $STAGE0
 write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
@@ -47,7 +47,7 @@ CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 staged_complete "$STAGE" || { echo "FATAL: x.py install did not stage every tool under $STAGE" >&2; exit 1; }
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
-cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
+cp -f "$RECAULK_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wrap_rustc "$STAGE" always
 wrap_linking_tool "$STAGE" clippy-driver always
 prune_proc_macro_dylibs "$STAGE"

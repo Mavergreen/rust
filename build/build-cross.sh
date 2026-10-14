@@ -20,15 +20,15 @@ rm -f "$WORK/staged.stamp"; rm -rf "$STAGE_ROOT"
 
 echo "== fetch inputs =="
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
-POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
+RECAULK_A="$(fetch_recaulk)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 
 echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first use) =="
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"
 populate_clang_sdk "$CLANGDIR" "$SDK"
 
-echo "== backfill CCRandomGenerateBytes into the shim (and make MLS_VERSION authoritative) =="
-augment_shim "$POLY_A" "$CLANGDIR"
+echo "== rust's Recaulk pin is authoritative for rustc and cargo too =="
+install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
 echo "== configure bootstrap.toml =="
 # spec: shipyard docs/superpowers/specs/2026-09-24-sdk-pinning-design.md, decision 1 --
@@ -58,9 +58,9 @@ echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via cl
 
 staged_complete "$STAGE" || { echo "FATAL: x.py install did not stage every tool under $STAGE" >&2; exit 1; }
 
-echo "== bundle polyfill + wrap rustc (target-gated) =="
+echo "== bundle Recaulk + wrap rustc (target-gated) =="
 mkdir -p "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib"
-cp -f "$POLY_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
+cp -f "$RECAULK_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wrap_rustc "$STAGE" gated
 wrap_linking_tool "$STAGE" clippy-driver gated
 prune_proc_macro_dylibs "$STAGE"
