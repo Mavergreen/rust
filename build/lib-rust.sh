@@ -84,21 +84,18 @@ write_pinned_cc() {
   chmod +x "$1"
 }
 
-# platform: clang-22's clang.cfg auto-links <CFGDIR>/../lib/libMacportsLegacySupport.a, a copy
-#           bundled in its pkg
-augment_shim() {
-  _poly="$1"; _clang="$2"
-  for _src in "$REPO_ROOT"/build/polyfill-*.c; do
-    _obj="$(dirname "$_poly")/$(basename "$_src" .c).o"
-    "$_clang/bin/clang" -c -o "$_obj" "$_src"
-    "$_clang/bin/llvm-ar" r "$_poly" "$_obj"
-  done
-  for _sym in _CCRandomGenerateBytes _dispatch_workloop_create; do
-    nm -g "$_poly" 2>/dev/null | grep -q " T $_sym\$" \
-      || { echo "FATAL: polyfill did not define $_sym in $_poly" >&2; exit 1; }
-  done
-  cp -f "$_poly" "$_clang/lib/libMacportsLegacySupport.a"
+fetch_recaulk() {
+  _rc="$(sh "$SHIPYARD_SCRIPTS/fetch_product_pkg.sh" recaulk "$RECAULK_VERSION" "$WORK/recaulk")" || return 1
+  _a="$_rc/lib/librecaulk.a"
+  [ -f "$_a" ] || { echo "FATAL: Recaulk $RECAULK_VERSION has no lib/librecaulk.a" >&2; return 1; }
+  lipo -info "$_a" 2>/dev/null | sed -n 's/.*: //p' | grep -qw x86_64 \
+    || { echo "FATAL: $_a has no x86_64 slice" >&2; return 1; }
+  printf '%s\n' "$_a"
 }
+
+# platform: clang-22's clang.cfg links <CFGDIR>/../lib/librecaulk.a into everything it links, rustc and
+#           cargo included; overwriting it keeps build-info's recaulk= true of every shipped binary
+install_recaulk_into_clang() { cp -f "$1" "$2/lib/librecaulk.a"; }
 
 # platform: rustc puts -lSystem before -C link-args, and a modern SDK's libSystem exports clock_gettime
 # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
@@ -117,7 +114,7 @@ while [ -h "\$self" ]; do
   case "\$link" in /*) self="\$link" ;; *) self="\$(dirname "\$self")/\$link" ;; esac
 done
 S="\$(cd -P "\$(dirname "\$self")" >/dev/null 2>&1 && pwd)"
-P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/libMacportsLegacySupport.a"
+P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wants=$_wants
 prev=""
 for a in "\$@"; do
@@ -188,7 +185,7 @@ staged_complete() {
 write_stage0_wrappers() {
   mkdir -p "$1/bin"
   for _b in rustc cargo; do
-    printf '#!/bin/sh\nexport DYLD_INSERT_LIBRARIES="%s/libMavericksLegacySupport.dylib"\nexport DYLD_FORCE_FLAT_NAMESPACE=1\nexec "%s/%s/bin/%s" "$@"\n' \
+    printf '#!/bin/sh\nexport DYLD_INSERT_LIBRARIES="%s/librecaulk-stage0.dylib"\nexport DYLD_FORCE_FLAT_NAMESPACE=1\nexec "%s/%s/bin/%s" "$@"\n' \
       "$1" "$2" "$_b" "$_b" > "$1/bin/$_b"
     chmod +x "$1/bin/$_b"
   done
@@ -205,9 +202,9 @@ prune_proc_macro_dylibs() {
 }
 
 stage_stamp() {
-  printf 'variant=%s\nrust=%s\nclang=%s\nlegacy_support=%s\n' \
-    "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$MLS_VERSION"
-  for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh" "$REPO_ROOT"/build/polyfill-*.c; do
+  printf 'variant=%s\nrust=%s\nclang=%s\nrecaulk=%s\n' \
+    "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$RECAULK_VERSION"
+  for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh"; do
     printf '%s %s\n' "$(shasum -a 256 "$_f" | awk '{print $1}')" "${_f#"$REPO_ROOT"/}"
   done
 }

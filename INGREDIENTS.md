@@ -7,25 +7,25 @@ built with.
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ✅ `github-releases` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
-| clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ✅ `github-releases` on `Mavergreen/clang` (becomes `clang-22` at the rename), `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
-| macports-legacy-support shim (prebuilt) | `components/legacy-support/version` | ✅ `github-releases` on `Mavergreen/macports-legacy-support`, `-mavericks.N` versioning | repackage |
+| clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ✅ `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
+| Recaulk (prebuilt `librecaulk.a`, the 10.9 back-fills) | `components/recaulk/version` | ✅ shipyard preset manager → `github-releases` on `Mavergreen/recaulk` | repackage |
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
-The legacy-support pin is a whole file, not the preset's `# mavericks-legacysupport` marker line,
-because `release-state.sh` reads a `path:KEY` entry as a line starting `KEY=`: an `export`ed,
-marker-commented assignment cannot be declared.
+## How the back-fill reaches a 10.9 binary
 
-## Temporary back-fills (with their exit)
+rustc links Recaulk's `librecaulk.a` into every x86_64 binary it links, one of two ways:
 
-`build/polyfill-ccrandom.c` (`CCRandomGenerateBytes`, std's entropy source) and
-`build/polyfill-dispatch.c` (four libdispatch symbols that dispatch2 links into rustc and cargo but
-never calls) are compiled into the shim by `augment_shim`. Both belong in mavergreen-compat, which
-already carries `ccrandom.c`.
+- **A linker that already links it** (Mavergreen clang22's `clang++`, `22.1.1-mavericks.7` or
+  later, as `CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER`): the rustc wrapper asks the linker what it
+  links (`-###`), sees `librecaulk.a`, and adds only `-mmacosx-version-min=10.9`. The linker's own
+  configuration supplies the archive, the frameworks and the 10.9 SDK. An older clang22 links the
+  retired macports-legacy-support archive instead and is not supported.
+- **Any other linker** (the default `cc`): the wrapper force-loads the `librecaulk.a` that ships in
+  `lib/rustlib/x86_64-apple-darwin/lib/`, with the frameworks it needs.
 
-**Exit:** when mavergreen-compat publishes a release under the `/usr/local/mavergreen` layout, pin it
-here as an ingredient, and delete both files and `augment_shim`'s compile loop. Separately,
-`CCRandomGenerateBytes` is to be offered upstream to macports/macports-legacy-support.
+rustc and cargo themselves are linked through clang-22 with this repo's pinned Recaulk, which the
+build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of every binary.
 
 ## Build-time tools (not ingredients)
 
@@ -63,7 +63,7 @@ the same way.
 
 - upstream: UPSTREAM_VERSION
 - clang: components/clang/version
-- legacy-support: components/legacy-support/version
+- recaulk: components/recaulk/version
 
 ## Conformance deviations
 
