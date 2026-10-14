@@ -41,7 +41,6 @@ set +e; out="$(run "$t/noclt" 'bad=1; skips=2; summary')"; rc=$?; set -e
 [ "$rc" != 0 ] || fail "a failure still fails the summary"
 case "$out" in *"SOME FAILED"*"2 SKIPPED"*) : ;; *) fail "a failing summary counts the skips too, got: $out" ;; esac
 
-# spec: the clang22 steps never depend on a skipped step for their sources
 out="$(run "$t/noclt" 'L() { :; }; link_clang22 2>/dev/null || :; [ -f "$w/smoke.rs" ] && echo smoke; link_clang22_build_rs 2>/dev/null || :; [ -f "$w/ws/app/build.rs" ] && echo ws')"
 [ "$out" = "smoke
 ws" ] || fail "link-clang22 and link-clang22-build-rs write their own sources, got: $out"
