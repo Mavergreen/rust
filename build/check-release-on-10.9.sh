@@ -51,6 +51,65 @@ clippy_ws() {
     > "$w/ws/app/src/lib.rs"
   L "cd '$w/ws' && cargo clippy -q && cargo build -q && [ \"\$(./target/debug/app)\" = '42 0' ] && cargo test -q --doc -p app"
 }
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MG="${MAVERICKS_CHECK_PREFIX:-/usr/local/mavergreen}"
+C22="$MG/clang22"
+gh_pkg() {
+  _repo="$1"; _tag="$2"; shift 2
+  _rb="https://github.com/Mavergreen/$_repo/releases/download/$_tag"
+  curl -fsSL -o "$w/$_repo-SHA256SUMS" "$_rb/SHA256SUMS" || return 1
+  for _a in "$@"; do
+    grep -q " $_a\$" "$w/$_repo-SHA256SUMS" || continue
+    curl -fsSL -o "$w/$_a" "$_rb/$_a" || return 1
+    ( cd "$w" && grep " $_a\$" "$_repo-SHA256SUMS" | shasum -a 256 -c - ) >&2 || return 1
+    echo "$w/$_a"; return 0
+  done
+  echo "none of $* is listed in $_rb/SHA256SUMS" >&2; return 1
+}
+clang22() {
+  if [ -x "$C22/bin/clang++" ]; then
+    [ -d "$C22/SDKs/MacOSX10.9.sdk" ] && return 0
+    echo "clang22 is installed without its 10.9 SDK: run sudo longboat install 10.9"; return 1
+  fi
+  if [ ! -d "$MG/longboat" ]; then
+    lb_tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/Mavergreen/longboat/releases/latest)"
+    lb_tag="${lb_tag##*/}"
+    lb="$(gh_pkg longboat "$lb_tag" "longboat-$lb_tag.pkg")" || return 1
+    sudo installer -pkg "$lb" -target / || return 1
+    : > "$w/installed-longboat"
+  fi
+  if [ ! -d "$MG/sdk109" ]; then
+    sudo "$MG/bin/longboat" install 10.9 || return 1
+    : > "$w/installed-sdk109"
+  fi
+  ct="$(tr -d ' \t\n' < "$ROOT/components/clang/version")"
+  cp="$(gh_pkg clang-22 "$ct" "mavericks-clang-22-native-$ct.pkg" "clang-22-native-$ct.pkg")" || return 1
+  sudo installer -pkg "$cp" -target / || return 1
+  : > "$w/installed-clang22"
+  [ -x "$C22/bin/clang++" ] && [ -d "$C22/SDKs/MacOSX10.9.sdk" ]
+}
+link_clang22() {
+  L "cd '$w' && cargo new -q c22 && cp '$w/smoke.rs' c22/src/main.rs && cd c22 && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
+    && [ "$("$w/c22/target/debug/c22")" = 'smoke Some(109) 42' ]
+}
+link_clang22_build_rs() {
+  L "cd '$w/ws' && cargo clean -q && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
+    && [ "$("$w/ws/target/debug/app")" = '42 0' ]
+}
+minos_sdk() {
+  for b in "$w/smoke" "$w/c22/target/debug/c22" "$w/ws/target/debug/app"; do
+    vm="$("$C22/bin/llvm-otool" -l "$b" | awk '/LC_VERSION_MIN_MACOSX/{p=1} p&&/version/{v=$2} p&&/sdk/{print v, $2; exit}')"
+    [ "$vm" = "10.9 10.9" ] || { echo "$b records minos/sdk '$vm', not '10.9 10.9'"; return 1; }
+  done
+}
+uninstall_clang22() {
+  _rc=0
+  for _p in clang22 sdk109 longboat; do
+    [ -f "$w/installed-$_p" ] || continue
+    sudo /usr/local/bin/mavergreen uninstall "$_p" || _rc=1
+  done
+  return "$_rc"
+}
 uninstall() {
   sudo /usr/local/bin/mavergreen uninstall rust || return 1
   [ ! -e /usr/local/mavergreen/rust ] || return 1
@@ -63,5 +122,10 @@ step versions versions
 step stress-program stress
 step crates-io crates_io
 step clippy-proc-macro-build-rs-doctest clippy_ws
+step clang22 clang22
+step link-clang22 link_clang22
+step link-clang22-build-rs link_clang22_build_rs
+step minos-sdk minos_sdk
 step uninstall uninstall
+step uninstall-clang22 uninstall_clang22
 if [ "$bad" = 0 ]; then echo "ALL PASS $V"; else echo "SOME FAILED $V -- fix forward in the next -mavericks.N"; exit 1; fi

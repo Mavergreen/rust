@@ -2,6 +2,7 @@
 # platform: macOS-only -- lipo, and assert_binary_compatible.sh's otool/nm
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
+RUST_VARIANT=cross; export RUST_VARIANT
 . "$ROOT/build/versions.sh"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 STAGE="$CROSS_STAGE_ROOT$CROSS_PREFIX"
@@ -27,5 +28,13 @@ lipo -info "$t/smoke" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: no
 
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
   sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
+
+CLANGXX="$WORK/clang-cross-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")/bin/clang++"
+[ -x "$CLANGXX" ] || { echo "FAIL: the cross build's clang22-cross is not at $CLANGXX, so the clang22 link was not checked"; exit 1; }
+env -u SDKROOT "$RUSTC" --target "$TARGET_TRIPLE" -C linker="$CLANGXX" "$t/smoke.rs" -o "$t/smoke-clang22" \
+  || { echo "FAIL: linking through clang22-cross's clang++ (codex-cli's setup) failed"; exit 1; }
+lipo -info "$t/smoke-clang22" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: clang22 link not x86_64"; exit 1; }
+MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
+  sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke-clang22"
 
 echo "OK smoke-target"
