@@ -23,16 +23,16 @@ step() {
 # platform: without the Command Line Tools xcode-select has no developer directory and /usr/bin/cc is
 #           10.9's stub, which exists either way
 has_clt() { xcode-select -p >/dev/null 2>&1; }
-# spec: INGREDIENTS.md conformance deviation vm-test -- a step that links with the default cc is a
-#       declared SKIP on a box without the Command Line Tools (the family VM never has them; shipyard
-#       vision area 18 E) until rust links with clang22 by default on 10.9 (area 18 B; QUEUE #48)
+# spec: INGREDIENTS.md "The default linker" -- a step that needs the Command Line Tools runs
+#       only where they are installed: shipyard vision area 18 D tests the CLT path on the maintainer's
+#       box, not gated, and the family VM never has them (area 18 E)
 cstep() {
   if has_clt; then step "$@"; else
-    echo "SKIP $1 (no Command Line Tools: /usr/bin/cc is 10.9's stub)"; skips=$((skips + 1))
+    echo "SKIP $1 (no Command Line Tools: covered on the maintainer's 10.9 box (area 18 D))"; skips=$((skips + 1))
   fi
 }
 summary() {
-  _s=""; [ "$skips" = 0 ] || _s=", $skips SKIPPED for want of the Command Line Tools (INGREDIENTS.md deviation vm-test)"
+  _s=""; [ "$skips" = 0 ] || _s=", $skips SKIPPED for want of the Command Line Tools"
   if [ "$bad" = 0 ]; then echo "ALL PASS $V$_s"; else echo "SOME FAILED $V$_s -- fix forward in the next -mavericks.N"; return 1; fi
 }
 fetch() {
@@ -53,6 +53,9 @@ write_smoke() {
 }
 stress() {
   write_smoke && L "cd '$w' && rustc smoke.rs -o smoke" && [ "$("$w/smoke")" = 'smoke Some(109) 42' ]
+}
+explicit_cc() {
+  write_smoke && L "cd '$w' && rustc -C linker=cc smoke.rs -o smoke-cc" && [ "$("$w/smoke-cc")" = 'smoke Some(109) 42' ]
 }
 crates_io() { L "cd '$w' && cargo new -q dep && cd dep && cargo add -q itoa@1 && cargo build -q"; }
 write_ws() {
@@ -109,6 +112,8 @@ clang22() {
   : > "$w/installed-clang22"
   [ -x "$C22/bin/clang++" ] && [ -d "$C22/SDKs/MacOSX10.9.sdk" ]
 }
+# spec: INGREDIENTS.md "How the back-fill reaches a 10.9 binary" -- with no SDKROOT, the wrapper hands
+#       rustc an explicit clang22's own 10.9 SDK, which minos-sdk then requires
 link_clang22() {
   write_smoke && L "cd '$w' && rm -rf c22 && cargo new -q c22 && cp '$w/smoke.rs' c22/src/main.rs && cd c22 && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
     && [ "$("$w/c22/target/debug/c22")" = 'smoke Some(109) 42' ]
@@ -118,8 +123,8 @@ link_clang22_build_rs() {
     && [ "$("$w/ws/target/debug/app")" = '42 0' ]
 }
 minos_sdk() {
-  set -- "$w/c22/target/debug/c22" "$w/ws/target/debug/app"
-  ! has_clt || set -- "$w/smoke" "$@"
+  set -- "$w/smoke" "$w/c22/target/debug/c22" "$w/ws/target/debug/app"
+  ! has_clt || [ ! -f "$w/smoke-cc" ] || set -- "$w/smoke-cc" "$@"
   for b in "$@"; do
     [ -f "$b" ] || { echo "$b was never built"; return 1; }
     vm="$("$C22/bin/llvm-otool" -l "$b" | awk '/LC_VERSION_MIN_MACOSX/{p=1} p&&/version/{v=$2} p&&/sdk/{print v, $2; exit}')"
@@ -141,14 +146,15 @@ uninstall() {
 }
 step fetch-and-verify fetch
 [ "$bad" = 0 ] || { echo "SOME FAILED $V -- not installing a pkg that did not verify"; exit 1; }
+step clang22 clang22
 step install install_pkg
 step versions versions
-cstep stress-program stress
-cstep crates-io crates_io
-cstep clippy-proc-macro-build-rs-doctest clippy_ws
-step clang22 clang22
+step stress-program stress
+step crates-io crates_io
+step clippy-proc-macro-build-rs-doctest clippy_ws
 step link-clang22 link_clang22
 step link-clang22-build-rs link_clang22_build_rs
+cstep explicit-cc explicit_cc
 step minos-sdk minos_sdk
 step uninstall uninstall
 step uninstall-clang22 uninstall_clang22
