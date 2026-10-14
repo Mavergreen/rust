@@ -170,6 +170,33 @@ jobs:
             dist/RELEASE_NOTES.md
             dist/*.xml
 
+  vm-test:
+    needs: [ver, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/download-artifact@v8
+        with: { name: dist-native, path: dist }
+      - name: Checksums, as the release will carry them
+        run: cd dist && sha256sum rust-*.pkg > SHA256SUMS
+      - name: Install and use the pkg on Mac OS X 10.9
+        uses: Mavergreen/mavericks-vm@v1
+        env:
+          RUST_FULL_VERSION: ${{ needs.ver.outputs.version }}
+        with:
+          image-key: ${{ secrets.MAVERICKS_VM_KEY }}
+          envs: RUST_FULL_VERSION
+          copyback: false
+          run: |
+            sw_vers
+            sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; exit 1; }
+            MAVERICKS_RELEASE_BASE="file://$PWD/dist" sh build/check-release-on-10.9.sh "$RUST_FULL_VERSION"
+
   scan:
     needs: [ver, collect]
     if: always() && needs.ver.outputs.publish == 'yes'
@@ -179,7 +206,7 @@ jobs:
     secrets: { SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_PRIVATE_KEY }}" }
 
   publish:
-    needs: [ver, collect, scan]
+    needs: [ver, collect, scan, vm-test]
     if: needs.ver.outputs.publish == 'yes'
     permissions: { contents: write }
     uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
