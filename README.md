@@ -11,6 +11,10 @@ Included:
 
 ### Directly on Mavericks
 
+Install [clang22](https://github.com/Mavergreen/clang-22/releases/latest) first, with the 10.9 SDK it
+needs from [Longboat](https://github.com/Mavergreen/longboat/releases/latest): rust links with clang22
+by default, so you don't need Apple's Command Line Tools. Then:
+
 ```sh
 sudo installer -pkg rust-<version>.pkg -target /
 ```
