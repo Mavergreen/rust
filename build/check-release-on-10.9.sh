@@ -13,10 +13,27 @@ os="${MAVERICKS_CHECK_OS:-$(sw_vers -productVersion 2>/dev/null)}"
 case "$os" in 10.9|10.9.*) : ;; *) echo "check-release-on-10.9.sh: run this on Mac OS X 10.9 (this is $os)" >&2; exit 2 ;; esac
 base="${MAVERICKS_RELEASE_BASE:-https://github.com/Mavergreen/rust/releases/download/$V}"
 w="$(mktemp -d "${TMPDIR:-/tmp}/rust-release-check.XXXXXX")"
-bad=0
+bad=0; skips=0
 step() {
   name="$1"; shift
-  if ( "$@" ) > "$w/$name.log" 2>&1; then echo "PASS $name"; else echo "FAIL $name (log: $w/$name.log)"; bad=1; fi
+  if ( "$@" ) > "$w/$name.log" 2>&1; then echo "PASS $name"; else
+    echo "FAIL $name (log: $w/$name.log)"; tail -n 20 "$w/$name.log" | sed 's/^/    /'; bad=1
+  fi
+}
+# platform: without the Command Line Tools xcode-select has no developer directory and /usr/bin/cc is
+#           10.9's stub, which exists either way
+has_clt() { xcode-select -p >/dev/null 2>&1; }
+# spec: INGREDIENTS.md conformance deviation vm-test -- a step that links with the default cc is a
+#       declared SKIP on a box without the Command Line Tools (the family VM never has them; shipyard
+#       vision area 18 E) until rust links with clang22 by default on 10.9 (area 18 B; QUEUE #48)
+cstep() {
+  if has_clt; then step "$@"; else
+    echo "SKIP $1 (no Command Line Tools: /usr/bin/cc is 10.9's stub)"; skips=$((skips + 1))
+  fi
+}
+summary() {
+  _s=""; [ "$skips" = 0 ] || _s=", $skips SKIPPED for want of the Command Line Tools (INGREDIENTS.md deviation vm-test)"
+  if [ "$bad" = 0 ]; then echo "ALL PASS $V$_s"; else echo "SOME FAILED $V$_s -- fix forward in the next -mavericks.N"; return 1; fi
 }
 fetch() {
   curl -fsSL -o "$w/rust-$V.pkg" "$base/rust-$V.pkg" || return 1
@@ -29,14 +46,16 @@ install_pkg() { sudo installer -pkg "$w/rust-$V.pkg" -target / && /usr/local/bin
 # platform: /usr/local/mavergreen/bin reaches PATH only through a login shell's paths.d
 L() { /bin/zsh -lc "$1"; }
 versions() { L 'rustc --version && cargo --version && cargo clippy --version && cargo fmt --version'; }
-stress() {
+write_smoke() {
   printf '%s\n' 'use std::collections::HashMap; use std::time::SystemTime;' \
     'fn main() { let mut m = HashMap::new(); m.insert("mavericks", 109); let _ = SystemTime::now();' \
     '  let n = std::thread::spawn(|| 42).join().unwrap(); println!("smoke {:?} {}", m.get("mavericks"), n); }' > "$w/smoke.rs"
-  L "cd '$w' && rustc smoke.rs -o smoke" && [ "$("$w/smoke")" = 'smoke Some(109) 42' ]
+}
+stress() {
+  write_smoke && L "cd '$w' && rustc smoke.rs -o smoke" && [ "$("$w/smoke")" = 'smoke Some(109) 42' ]
 }
 crates_io() { L "cd '$w' && cargo new -q dep && cd dep && cargo add -q itoa@1 && cargo build -q"; }
-clippy_ws() {
+write_ws() {
   mkdir -p "$w/ws/app/src" "$w/ws/pm/src"
   printf '[workspace]\nmembers = ["app", "pm"]\nresolver = "2"\n' > "$w/ws/Cargo.toml"
   printf '[package]\nname = "pm"\nversion = "0.1.0"\nedition = "2021"\n[lib]\nproc-macro = true\n' > "$w/ws/pm/Cargo.toml"
@@ -49,7 +68,9 @@ clippy_ws() {
   printf '%s\n' '/// ```' '/// assert_eq!(app_doc::seven(), 7);' '/// ```' \
     'pub fn seven() -> u8 { let _m: std::collections::HashMap<u8, u8> = std::collections::HashMap::new(); let _ = std::time::Instant::now(); 7 }' \
     > "$w/ws/app/src/lib.rs"
-  L "cd '$w/ws' && cargo clippy -q && cargo build -q && [ \"\$(./target/debug/app)\" = '42 0' ] && cargo test -q --doc -p app"
+}
+clippy_ws() {
+  write_ws && L "cd '$w/ws' && cargo clippy -q && cargo build -q && [ \"\$(./target/debug/app)\" = '42 0' ] && cargo test -q --doc -p app"
 }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MG="${MAVERICKS_CHECK_PREFIX:-/usr/local/mavergreen}"
@@ -89,15 +110,18 @@ clang22() {
   [ -x "$C22/bin/clang++" ] && [ -d "$C22/SDKs/MacOSX10.9.sdk" ]
 }
 link_clang22() {
-  L "cd '$w' && cargo new -q c22 && cp '$w/smoke.rs' c22/src/main.rs && cd c22 && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
+  write_smoke && L "cd '$w' && rm -rf c22 && cargo new -q c22 && cp '$w/smoke.rs' c22/src/main.rs && cd c22 && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
     && [ "$("$w/c22/target/debug/c22")" = 'smoke Some(109) 42' ]
 }
 link_clang22_build_rs() {
-  L "cd '$w/ws' && cargo clean -q && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
+  write_ws && L "cd '$w/ws' && cargo clean -q && unset SDKROOT && CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER='$C22/bin/clang++' cargo build -q" \
     && [ "$("$w/ws/target/debug/app")" = '42 0' ]
 }
 minos_sdk() {
-  for b in "$w/smoke" "$w/c22/target/debug/c22" "$w/ws/target/debug/app"; do
+  set -- "$w/c22/target/debug/c22" "$w/ws/target/debug/app"
+  ! has_clt || set -- "$w/smoke" "$@"
+  for b in "$@"; do
+    [ -f "$b" ] || { echo "$b was never built"; return 1; }
     vm="$("$C22/bin/llvm-otool" -l "$b" | awk '/LC_VERSION_MIN_MACOSX/{p=1} p&&/version/{v=$2} p&&/sdk/{print v, $2; exit}')"
     [ "$vm" = "10.9 10.9" ] || { echo "$b records minos/sdk '$vm', not '10.9 10.9'"; return 1; }
   done
@@ -119,13 +143,13 @@ step fetch-and-verify fetch
 [ "$bad" = 0 ] || { echo "SOME FAILED $V -- not installing a pkg that did not verify"; exit 1; }
 step install install_pkg
 step versions versions
-step stress-program stress
-step crates-io crates_io
-step clippy-proc-macro-build-rs-doctest clippy_ws
+cstep stress-program stress
+cstep crates-io crates_io
+cstep clippy-proc-macro-build-rs-doctest clippy_ws
 step clang22 clang22
 step link-clang22 link_clang22
 step link-clang22-build-rs link_clang22_build_rs
 step minos-sdk minos_sdk
 step uninstall uninstall
 step uninstall-clang22 uninstall_clang22
-if [ "$bad" = 0 ]; then echo "ALL PASS $V"; else echo "SOME FAILED $V -- fix forward in the next -mavericks.N"; exit 1; fi
+summary || exit 1
