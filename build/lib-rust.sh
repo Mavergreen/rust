@@ -117,32 +117,46 @@ S="\$(cd -P "\$(dirname "\$self")" >/dev/null 2>&1 && pwd)"
 P="\$S/../lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wants=$_wants
 prev=""
+linker=""
+scan() {
+  [ "\$prev" = "--target" ] && [ "\$1" = "$TARGET_TRIPLE" ] && wants=1
+  case "\$1" in --target="$TARGET_TRIPLE") wants=1 ;; esac
+  case "\$prev" in -C|--codegen) case "\$1" in linker=*) linker="\${1#linker=}" ;; esac ;; esac
+  case "\$1" in -Clinker=*) linker="\${1#-Clinker=}" ;; --codegen=linker=*) linker="\${1#--codegen=linker=}" ;; esac
+  prev="\$1"
+}
+# platform: cargo retries rustc with one @argfile (an argument per line) when argv exceeds ARG_MAX
 for a in "\$@"; do
-  [ "\$prev" = "--target" ] && [ "\$a" = "$TARGET_TRIPLE" ] && wants=1
-  case "\$a" in --target="$TARGET_TRIPLE") wants=1 ;; esac
-  prev="\$a"
+  case "\$a" in
+    @*) if [ -f "\${a#@}" ]; then while IFS= read -r l || [ -n "\$l" ]; do scan "\$l"; done < "\${a#@}"; else scan "\$a"; fi ;;
+    *) scan "\$a" ;;
+  esac
 done
 if [ "\$wants" = 1 ] && [ ! -f "\$P" ]; then
   echo "$_tool: \$P is missing; without it a 10.9 binary would link post-10.9 symbols" >&2; exit 1
 fi
 if [ "\$wants" = 1 ]; then
-  if [ $_passthru = 1 ] && [ "\$#" -gt 0 ]; then
-    case "\$1" in rustc|*/rustc|*/rustc.bin)
-      first="\$1"; shift
-      exec "\$S/$_tool.bin" "\$first" \\
-        -C link-arg=-Wl,-force_load,"\$P" \\
-        -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
-        -C link-arg=-framework -C link-arg=CoreFoundation \\
-        -C link-arg=-framework -C link-arg=Security \\
-        -C link-arg=-lobjc "\$@" ;;
-    esac
+  defer=0
+  # platform: a clang driver that loads a .cfg reports the config's link inputs under -###, so the
+  #           linker itself says whether it already links librecaulk.a (Mavergreen clang22 does)
+  if [ -n "\$linker" ] && probe="\$("\$linker" -### /dev/null </dev/null 2>&1)"; then
+    case "\$probe" in */librecaulk.a*) defer=1 ;; esac
   fi
-  exec "\$S/$_tool.bin" \\
-    -C link-arg=-Wl,-force_load,"\$P" \\
-    -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
-    -C link-arg=-framework -C link-arg=CoreFoundation \\
-    -C link-arg=-framework -C link-arg=Security \\
-    -C link-arg=-lobjc "\$@"
+  first=0
+  if [ $_passthru = 1 ] && [ "\$#" -gt 0 ]; then
+    case "\$1" in rustc|*/rustc|*/rustc.bin) first="\$1"; shift ;; esac
+  fi
+  if [ "\$defer" = 1 ]; then
+    set -- -C link-arg=-mmacosx-version-min=$MACOS_MIN "\$@"
+  else
+    set -- -C link-arg=-Wl,-force_load,"\$P" \\
+      -C link-arg=-mmacosx-version-min=$MACOS_MIN \\
+      -C link-arg=-framework -C link-arg=CoreFoundation \\
+      -C link-arg=-framework -C link-arg=Security \\
+      -C link-arg=-framework -C link-arg=CoreServices \\
+      -C link-arg=-lobjc "\$@"
+  fi
+  [ "\$first" = 0 ] || set -- "\$first" "\$@"
 fi
 exec "\$S/$_tool.bin" "\$@"
 EOF
