@@ -72,6 +72,13 @@ write_cmake_toolchain() {
 
 write_x86_cmake_toolchain() { write_cmake_toolchain "$1" "$2" "$MACOS_MIN" x86_64; }
 
+# platform: clang-22's clang.cfg looks for <bin>/../SDKs/MacOSX10.9.sdk; its pkg ships SDKs as a link
+#           into Longboat's sdk109, which dangles in a prefix copied out of the pkg
+populate_clang_sdk() {
+  [ -h "$1/SDKs" ] && rm -f "$1/SDKs"
+  mkdir -p "$1/SDKs"; ln -sfn "$2" "$1/SDKs/MacOSX10.9.sdk"
+}
+
 write_pinned_cc() {
   printf '#!/bin/sh\nexec /usr/bin/clang -isysroot "%s" "$@"\n' "$2" > "$1"
   chmod +x "$1"
