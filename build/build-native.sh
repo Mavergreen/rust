@@ -24,7 +24,7 @@ esac
 export CLANG_VARIANT
 mkdir -p "$WORK"
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
-SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
+SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 augment_shim "$POLY_A" "$CLANGDIR"

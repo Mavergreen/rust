@@ -24,9 +24,8 @@ POLY_A="$(sh "$HERE/fetch-legacy-support.sh")"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 
 echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first use) =="
-# platform: clang-22's pkg ships an empty SDKs/; clang.cfg looks for <bin>/../SDKs/MacOSX10.9.sdk
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"
-mkdir -p "$CLANGDIR/SDKs"; ln -sfn "$SDK" "$CLANGDIR/SDKs/MacOSX10.9.sdk"
+populate_clang_sdk "$CLANGDIR" "$SDK"
 
 echo "== backfill CCRandomGenerateBytes into the shim (and make MLS_VERSION authoritative) =="
 augment_shim "$POLY_A" "$CLANGDIR"
