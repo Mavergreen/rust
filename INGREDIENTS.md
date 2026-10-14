@@ -23,7 +23,7 @@ rustc links Recaulk's `librecaulk.a` into every x86_64 binary it links, one of t
 - **Any other linker** (`cc`, named explicitly): the wrapper force-loads the `librecaulk.a` that
   ships in `lib/rustlib/x86_64-apple-darwin/lib/`, with the frameworks it needs.
 
-## The default linker: clang22
+## The default linker: clang22, a runtime dependency of the native pkg
 
 On 10.9 the native pkg's `rustc` and `clippy-driver` link with clang22's `clang++` unless a linker is
 named (`-C linker=…`, however it arrives: `CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER`, cargo config,
@@ -42,6 +42,9 @@ are installed (area 18 D).
   remedies: install or update clang22, or name a linker. A call that links nothing (`rustc -vV`,
   `--version`, cargo's `--print` probes) needs no clang22 and passes through untouched, so cargo
   itself keeps working and a named linker reaches every compile.
+- So clang22 is a **tool** dependency of the native pkg: its preinstall refuses a box without clang22
+  installed (`stage_product.sh --requires clang22`). It isn't pinned: any clang22 at or after that
+  floor works, and the Recaulk check catches an older one. rust-cross has no such dependency.
 
 rustc and cargo themselves are linked through clang-22 with this repo's pinned Recaulk, which the
 build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of every binary.

@@ -1,5 +1,8 @@
 # platform: macOS-only -- ditto, pkgbuild, productbuild
 #   usage: . build/package-lib.sh; package_variant native|cross
+# spec: INGREDIENTS.md "The default linker" -- the native pkg's rustc links with clang22 by
+#       default, so its preinstall refuses a box without clang22 (shipyard vision area 7's tool kind)
+variant_requires() { case "$1" in native) echo clang22 ;; esac; }
 package_variant() {
   v="$1"
   RUST_VARIANT="$v"; export RUST_VARIANT
@@ -26,6 +29,7 @@ package_variant() {
   set -- --stage "$pr" --product "$short" --name "Rust for Mavericks" --group rust \
     --version "$VER" --exclude bin/rustc.bin --exclude bin/clippy-driver.bin --scripts-out "$scr" --updater-app "$app"
   if [ -n "$line" ]; then set -- "$@" --line "$line"; fi
+  for _r in $(variant_requires "$v"); do set -- "$@" --requires "$_r"; done
   find "$pr" -name '._*' -delete
   sh "$SHIPYARD_SCRIPTS/stage_product.sh" "$@"
   pkgbuild --root "$pr" --identifier "$id" --version "$VER" --scripts "$scr" --install-location / "$comp"
