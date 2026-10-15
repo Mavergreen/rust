@@ -40,5 +40,10 @@ grep -q 'fetch_product_pkg\.sh' "$ROOT/build/fetch-clang.sh" || { echo "FAIL fet
 for f in "$ROOT"/build/fetch-*.sh; do
   if grep -En '(^|[^_])curl ' "$f"; then echo "FAIL ${f#"$ROOT"/} downloads through shipyard_curl or shipyard_fetch_verified, which retry (QUEUE #58)"; exit 1; fi
 done
+for f in "$ROOT"/tests/*.sh; do
+  if grep -En '(^|[^-_A-Za-z{$/])(lipo|otool|nm) |(^|[;&|])[[:space:]]*/usr/bin/clang ' "$f" | grep -vE '^[0-9]+:[[:space:]]*#'; then
+    echo "FAIL ${f#"$ROOT"/} reads Mach-O through \$LIPO/\$OTOOL/\$NM from macho_tools and compiles with \$MACHO_CC: on 10.9 without the Command Line Tools Apple's are xcode-select stubs (vision area 18 A)"; exit 1
+  fi
+done
 
 echo "OK version-test"

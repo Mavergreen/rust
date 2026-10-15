@@ -1,9 +1,9 @@
 #!/bin/sh
-# platform: macOS-only -- lipo, and assert_binary_compatible.sh's otool/nm
+# platform: macOS-only -- macho_tools' llvm-lipo, and assert_binary_compatible.sh's otool/nm through it
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 RUST_VARIANT=cross; export RUST_VARIANT
-. "$ROOT/build/versions.sh"
+. "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"; macho_tools
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 STAGE="$CROSS_STAGE_ROOT$CROSS_PREFIX"
 RUSTC="$STAGE/bin/rustc"
@@ -24,7 +24,7 @@ EOF
 # spec: shipyard docs/superpowers/specs/2026-09-24-sdk-pinning-design.md, decision 1 -- a 10.9
 #       binary records the pinned 10.9 SDK; rustc links against $SDKROOT when it is set
 SDKROOT="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch x86_64)" "$RUSTC" --target "$TARGET_TRIPLE" "$t/smoke.rs" -o "$t/smoke"
-lipo -info "$t/smoke" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
+"$LIPO" -info "$t/smoke" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: not x86_64"; exit 1; }
 
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
   sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke"
@@ -33,7 +33,7 @@ CLANGXX="$WORK/clang-cross-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")/bin/clang++"
 [ -x "$CLANGXX" ] || { echo "FAIL: the cross build's clang22-cross is not at $CLANGXX, so the clang22 link was not checked"; exit 1; }
 env -u SDKROOT "$RUSTC" --target "$TARGET_TRIPLE" -C linker="$CLANGXX" "$t/smoke.rs" -o "$t/smoke-clang22" \
   || { echo "FAIL: linking through clang22-cross's clang++ (codex-cli's setup) failed"; exit 1; }
-lipo -info "$t/smoke-clang22" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: clang22 link not x86_64"; exit 1; }
+"$LIPO" -info "$t/smoke-clang22" | sed -n 's/.*: //p' | grep -qw x86_64 || { echo "FAIL: clang22 link not x86_64"; exit 1; }
 MAVERICKS_REQUIRE_DEFINED_SYMBOLS='_clock_gettime _CCRandomGenerateBytes' \
   sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$t/smoke-clang22"
 

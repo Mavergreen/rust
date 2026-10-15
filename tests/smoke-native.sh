@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- lipo, and assert_binary_compatible.sh's otool/nm
+# platform: macOS-only -- macho_tools' llvm-lipo, and assert_binary_compatible.sh's otool/nm through it
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"
@@ -14,10 +14,10 @@ find "$S/bin" "$S/lib" -type f -perm -u+x | while IFS= read -r f; do
   case "$(file "$f")" in *Mach-O*executable*|*Mach-O*"dynamically linked shared library"*) echo "$f" ;; esac
 done > "$list"
 [ -s "$list" ] || fail "no Mach-O found under $S -- nothing audited"
+. "$ROOT/build/lib-rust.sh"; macho_tools
 while IFS= read -r f; do
-  lipo -info "$f" | grep -q 'architecture: x86_64$' || fail "$f is not thin x86_64"
+  "$LIPO" -info "$f" | grep -Eq 'architecture: x86_64 *$' || fail "$f is not thin x86_64"
 done < "$list"
-. "$ROOT/build/lib-rust.sh"
 guard_prefix "$S"
 
 if [ "$(sh "$SHIPYARD_SCRIPTS/mavericks_mode.sh")" = native ]; then

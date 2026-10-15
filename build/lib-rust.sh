@@ -267,12 +267,30 @@ write_stage0_wrappers() {
   done
 }
 
+# platform: on 10.9 without the Command Line Tools, lipo, otool, nm, strings and /usr/bin/clang are
+#           xcode-select stubs; clang-22 ships llvm- workalikes, and the compat guard reads
+#           LIPO, OTOOL, NM and STRINGS. The build's clang-22 comes first, then the installed one;
+#           MACHO_CC is a clang-22 only where its 10.9 SDK is in place
+macho_tools() {
+  _pin="$(tr -d ' \t\n' < "${CLANG_PIN_FILE:-/dev/null}" 2>/dev/null)" || _pin=""
+  for _d in ${CLANGDIR:+"$CLANGDIR/bin"} ${_pin:+"${WORK_ROOT:-/nonexistent}"/work-*/clang-*-"$_pin"/bin} \
+            /usr/local/mavergreen/clang22/bin; do
+    [ -x "$_d/llvm-otool" ] || continue
+    LIPO="$_d/llvm-lipo"; OTOOL="$_d/llvm-otool"; NM="$_d/llvm-nm"; STRINGS="$_d/llvm-strings"
+    [ -d "$_d/../SDKs/MacOSX10.9.sdk" ] && MACHO_CC="${MACHO_CC:-$_d/clang}"
+    break
+  done
+  LIPO="${LIPO:-lipo}"; OTOOL="${OTOOL:-otool}"; NM="${NM:-nm}"; STRINGS="${STRINGS:-strings}"
+  MACHO_CC="${MACHO_CC:-/usr/bin/clang}"
+  export LIPO OTOOL NM STRINGS MACHO_CC
+}
+
 # spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 10 proof 2 ruling -- a cross-hosted
 #       install leaves rustc's own proc-macro dylibs in lib/; nothing links them
 prune_proc_macro_dylibs() {
   for _d in "$1"/lib/*.dylib; do
     [ -f "$_d" ] && [ ! -h "$_d" ] || continue
-    nm -gU "$_d" 2>/dev/null | grep -q '__rustc_proc_macro_decls_' && rm -f "$_d"
+    "${NM:-nm}" -gU "$_d" 2>/dev/null | grep -q '__rustc_proc_macro_decls_' && rm -f "$_d"
   done
   return 0
 }
@@ -294,7 +312,7 @@ guard_prefix() {
   _gd="$(mktemp -d "${TMPDIR:-/tmp}/guard.XXXXXX")"
   find "$1/bin" "$1/lib" -type f -perm -u+x | while IFS= read -r _f; do
     case "$(file "$_f")" in *Mach-O*executable*|*Mach-O*"dynamically linked shared library"*) : ;; *) continue ;; esac
-    _a="$(lipo -info "$_f" 2>/dev/null | sed -n 's/.*architecture: //p; s/.* are: //p')"
+    _a="$("${LIPO:-lipo}" -info "$_f" 2>/dev/null | sed -n 's/.*architecture: //p; s/.* are: //p' | sed 's/ *$//')"
     printf '%s\n' "$_f" >> "$_gd/$(printf '%s' "$_a" | tr ' ' '+')"
   done
   [ -n "$(ls "$_gd")" ] || { echo "FATAL: no Mach-O under $1 -- nothing guarded" >&2; rm -rf "$_gd"; return 1; }
