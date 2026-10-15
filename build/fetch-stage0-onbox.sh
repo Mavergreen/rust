@@ -6,15 +6,15 @@
 # spec: docs/superpowers/specs/2026-09-25-rust-plan3a-conformance-design.md decision 4
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"
+. "$HERE/msc.sh"; . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
 CLANGDIR="${1:?usage: fetch-stage0-onbox.sh CLANGDIR RECAULK_A}"; RECAULK_A="${2:?RECAULK_A}"
 H=x86_64-apple-darwin; S0="$WORK/stage0-onbox"; CACHE="$WORK/stage0-dl"; mkdir -p "$CACHE" "$S0"
 name="rust-$RUST_VERSION-$H"; tb="$CACHE/$name.tar.xz"
 url="https://static.rust-lang.org/dist/$name.tar.xz"
-[ -f "$tb" ] || { curl -fsSL -o "$tb.tmp" "$url"; mv "$tb.tmp" "$tb"; }
-want="$(curl -fsSL "$url.sha256" | awk '{print $1}')"
+want="$(shipyard_curl "$url.sha256" - | awk '{print $1}')"
 [ -n "$want" ] || { echo "FATAL: no upstream .sha256 for $name" >&2; exit 1; }
-got="$(shasum -a 256 "$tb" | awk '{print $1}')"
-[ "$want" = "$got" ] || { echo "FATAL: stage0 sha mismatch: $got != $want" >&2; rm -f "$tb"; exit 1; }
+shipyard_fetch_verified "$url" "$want" "$CACHE" "$name.tar.xz" \
+  || { echo "FATAL: $url did not verify against upstream's .sha256" >&2; exit 1; }
 rm -rf "$S0/dist"; mkdir -p "$S0/dist"; tar -xf "$tb" -C "$S0/dist"
 D="$S0/dist/$name"
 cp -R "$D/rust-std-$H/lib/rustlib/$H" "$D/rustc/lib/rustlib/"
