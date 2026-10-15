@@ -30,6 +30,10 @@ has onbox 'rustc = "/s0/bin/rustc"'
 has onbox 'local-rebuild = true'
 hasnt xhost 'local-rebuild'
 hasnt cross 'rustc = '
+grep -A1 -x '\[rust\]' "$t/onbox/bootstrap.toml" | grep -qx 'deny-warnings = false' \
+  || fail "onbox: [rust] deny-warnings = false (bootstrap's own build scripts link at the 10.9 floor, below rustc's 10.12, and rustc warns)"
+hasnt cross 'deny-warnings'
+hasnt xhost 'deny-warnings'
 for v in cross xhost onbox; do
   has "$v" 'tools = ["cargo", "rustdoc", "clippy", "rustfmt"]'
   hasnt "$v" 'cmake = '

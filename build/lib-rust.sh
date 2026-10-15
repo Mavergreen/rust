@@ -35,6 +35,11 @@ prefix = "$_prefix"
 sysconfdir = "etc"
 
 [rust]
+EOF
+    # platform: built on 10.9 itself, bootstrap's own build scripts compile and link at the 10.9 floor,
+    #           below rustc's 10.12; rustc and clang++ warn about it, and bootstrap denies warnings
+    if [ "$_build" = "$TARGET_TRIPLE" ]; then printf 'deny-warnings = false\n'; fi
+    cat <<EOF
 channel = "stable"
 
 [llvm]
