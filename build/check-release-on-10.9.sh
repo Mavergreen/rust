@@ -35,6 +35,8 @@ summary() {
   _s=""; [ "$skips" = 0 ] || _s=", $skips SKIPPED for want of the Command Line Tools"
   if [ "$bad" = 0 ]; then echo "ALL PASS $V$_s"; else echo "SOME FAILED $V$_s -- fix forward in the next -mavericks.N"; return 1; fi
 }
+# platform: runs from a bare checkout on a 10.9 box, the family VM included, where shipyard need not
+#           be installed, so it downloads with 10.9's own curl rather than shipyard_curl
 fetch() {
   curl -fsSL -o "$w/rust-$V.pkg" "$base/rust-$V.pkg" || return 1
   curl -fsSL -o "$w/SHA256SUMS" "$base/SHA256SUMS" || return 1
