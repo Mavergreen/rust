@@ -16,7 +16,9 @@ EOF
   n=$((n+1))
   exe="$app/Contents/MacOS/$name"
   "$LIPO" -info "$exe" | grep -Eq "architecture: $arch *\$" || fail "$name must be thin $arch"
-  "$OTOOL" -l "$exe" | grep -A3 -E 'LC_VERSION_MIN_MACOSX|LC_BUILD_VERSION' | grep -Eq "(version|minos) $min\$" || fail "$name min OS must be $min"
+  # platform: llvm-otool prints LC_BUILD_VERSION's sdk before its minos, so minos is the fourth line
+  #           after cmd (Apple's otool prints it third)
+  "$OTOOL" -l "$exe" | grep -A4 -E 'LC_VERSION_MIN_MACOSX|LC_BUILD_VERSION' | grep -Eq "(version|minos) $min\$" || fail "$name min OS must be $min"
   [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = "$bid" ] || fail "$name bundle id must be $bid (derived: <pkg id>.updater)"
   ! "$OTOOL" -L "$exe" | grep -q 'mavergreen/rust' || fail "$name links the product it updates (self-update circularity)"
 done
