@@ -75,7 +75,20 @@ write_cmake_toolchain() {
     "$2" "$3" "$4" > "$1"
 }
 
-write_x86_cmake_toolchain() { write_cmake_toolchain "$1" "$2" "$MACOS_MIN" x86_64; }
+# platform: LLVM's configure asks xcrun for libtool and ld64; on 10.9 it finds the Command Line
+#           Tools' when they are installed and nothing when they are not, so pin clang-22's
+write_x86_cmake_toolchain() {
+  write_cmake_toolchain "$1" "$2" "$MACOS_MIN" x86_64
+  printf 'set(CMAKE_LIBTOOL "%s/bin/llvm-libtool-darwin")\nset(LD64_EXECUTABLE "%s/bin/ld64.lld")\n' "$3" "$3" >> "$1"
+}
+
+# platform: on 10.9 rustc runs xcrun for an SDK on every link and the cc crate runs cc to detect a
+#           compiler family; both are Command Line Tools stubs. A cross-hosted build's arm64 build
+#           tools need neither the 10.9 SDK nor clang-22, so this pins only an on-box build
+pin_onbox_tools() {
+  [ "$1" = "$TARGET_TRIPLE" ] || return 0
+  SDKROOT="$3"; CC="$2/bin/clang"; CXX="$2/bin/clang++"; export SDKROOT CC CXX
+}
 
 # platform: clang-22's clang.cfg looks for <bin>/../SDKs/MacOSX10.9.sdk; its pkg ships SDKs as a link
 #           into Longboat's sdk109, which dangles in a prefix copied out of the pkg

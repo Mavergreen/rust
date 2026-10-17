@@ -32,7 +32,8 @@ install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 STAGE0=""
 if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0-onbox.sh" "$CLANGDIR" "$RECAULK_A")"; fi
 write_bootstrap_toml "$SRC" "$NATIVE_PREFIX" "$BUILD_TRIPLE" "$TARGET_TRIPLE" "$CLANGDIR" $STAGE0
-write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK"
+write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK" "$CLANGDIR"
+pin_onbox_tools "$BUILD_TRIPLE" "$CLANGDIR" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 # platform: the cmake crate (which bootstrap drives LLVM through) reads

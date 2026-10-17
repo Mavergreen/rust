@@ -43,10 +43,20 @@ for v in cross xhost onbox; do
   [ "$(grep -c '^\[target\.x86_64-apple-darwin\]' "$t/$v/bootstrap.toml")" = 1 ] || fail "$v: exactly one x86_64 target section"
 done
 
-write_x86_cmake_toolchain "$t/tc.cmake" /sdk109
+write_x86_cmake_toolchain "$t/tc.cmake" /sdk109 /c
 grep -qx 'set(CMAKE_OSX_SYSROOT "/sdk109")' "$t/tc.cmake" || fail "toolchain: sysroot (a cross-hosted x86_64 LLVM must not probe the host SDK)"
 grep -qx 'set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9")' "$t/tc.cmake" || fail "toolchain: deployment target"
 grep -qx 'set(CMAKE_OSX_ARCHITECTURES "x86_64")' "$t/tc.cmake" || fail "toolchain: arch"
+grep -qx 'set(CMAKE_LIBTOOL "/c/bin/llvm-libtool-darwin")' "$t/tc.cmake" \
+  || fail "toolchain: LLVM archives with xcrun's libtool when the Command Line Tools are present and llvm-ar when not"
+grep -qx 'set(LD64_EXECUTABLE "/c/bin/ld64.lld")' "$t/tc.cmake" \
+  || fail "toolchain: LLVM asks xcrun for ld64, which differs with and without the Command Line Tools"
+( unset SDKROOT CC CXX; pin_onbox_tools x86_64-apple-darwin /c /sdk109
+  [ "$SDKROOT" = /sdk109 ] && [ "$CC" = /c/bin/clang ] && [ "$CXX" = /c/bin/clang++ ] ) \
+  || fail "on-box: rustc asks xcrun for an SDK and the cc crate runs cc unless SDKROOT, CC and CXX are set"
+( unset SDKROOT CC CXX; pin_onbox_tools aarch64-apple-darwin /c /sdk109
+  [ -z "${SDKROOT:-}${CC:-}${CXX:-}" ] ) \
+  || fail "cross-hosted: the arm64 build tools must not link against the 10.9 SDK or compile with clang-22"
 printf '#!/bin/sh\n' > "$t/fake-shipyard-cmake"; chmod +x "$t/fake-shipyard-cmake"
 d="$(SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/cmbin")"
 [ "$d" = "$t/cmbin" ] || fail "cmake_shim_dir must print its dir (got '$d')"
