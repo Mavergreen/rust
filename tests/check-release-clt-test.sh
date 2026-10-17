@@ -77,5 +77,5 @@ done
 n() { grep -n "^c*step $1 " "$S" | cut -d: -f1; }
 [ "$(n explicit-cc)" -lt "$(n minos-sdk)" ] || fail "explicit-cc builds a binary minos-sdk checks, so it runs first"
 [ "$(n uninstall)" -lt "$(n uninstall-clang22)" ] || fail "rust, which requires clang22, is uninstalled first"
-grep -q '^- vm-test:' "$ROOT/INGREDIENTS.md" && fail "the vm-test deviation's exit (QUEUE #48) is met: INGREDIENTS.md no longer declares it"
+grep -q '^- vm-test:' "$ROOT/INGREDIENTS.md" && fail "the vm-test deviation's exit, clang22 as rust's default linker on 10.9, is met: INGREDIENTS.md no longer declares it"
 echo "OK check-release-clt-test"

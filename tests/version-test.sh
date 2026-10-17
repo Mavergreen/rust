@@ -36,9 +36,9 @@ echo "$out" | grep -qx "FULL=$U-mavericks.4" || { echo "FAIL local FULL: $out"; 
 ( RUST_VARIANT=native; . "$ROOT/build/versions.sh"
   case "$WORK" in */work-native) : ;; *) echo "FAIL WORK=$WORK for RUST_VARIANT=native"; exit 1 ;; esac
 ) || exit 1
-grep -q 'fetch_product_pkg\.sh' "$ROOT/build/fetch-clang.sh" || { echo "FAIL fetch-clang.sh takes clang-22's pkg through shipyard's fetch_product_pkg.sh (QUEUE #58)"; exit 1; }
+grep -q 'fetch_product_pkg\.sh' "$ROOT/build/fetch-clang.sh" || { echo "FAIL fetch-clang.sh takes clang-22's pkg through shipyard's fetch_product_pkg.sh, which retries and verifies it against the release's SHA256SUMS"; exit 1; }
 for f in "$ROOT"/build/fetch-*.sh; do
-  if grep -En '(^|[^_])curl ' "$f"; then echo "FAIL ${f#"$ROOT"/} downloads through shipyard_curl or shipyard_fetch_verified, which retry (QUEUE #58)"; exit 1; fi
+  if grep -En '(^|[^_])curl ' "$f"; then echo "FAIL ${f#"$ROOT"/} downloads through shipyard_curl or shipyard_fetch_verified, which retry and verify"; exit 1; fi
 done
 for f in "$ROOT"/tests/*.sh; do
   if grep -En '(^|[^-_A-Za-z{$/])(lipo|otool|nm) |(^|[;&|])[[:space:]]*/usr/bin/clang ' "$f" | grep -vE '^[0-9]+:[[:space:]]*#'; then
