@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- x.py drives Apple toolchains; otool/install_name_tool in relocate_prefix
+# platform: macOS-only -- x.py drives Apple toolchains; relocate_prefix rewrites with clang-22's llvm tools
 #   usage: build-cross.sh
 #          Stages the cross toolchain (runs on arm64 macOS, targets x86_64 10.9) at
 #          $CROSS_STAGE_ROOT$CROSS_PREFIX.
@@ -19,7 +19,7 @@ fi
 rm -f "$WORK/staged.stamp"; rm -rf "$STAGE_ROOT"
 
 echo "== fetch inputs =="
-CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
+CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
 RECAULK_A="$(fetch_recaulk)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 

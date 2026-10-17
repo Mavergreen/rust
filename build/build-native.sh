@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- x.py drives Apple toolchains; otool/install_name_tool in relocate_prefix
+# platform: macOS-only -- x.py drives Apple toolchains; relocate_prefix rewrites with clang-22's llvm tools
 #   usage: build-native.sh
 #          Stages the native (x86_64, runs on 10.9) toolchain at $NATIVE_STAGE_ROOT$NATIVE_PREFIX.
 #          On a modern Mac it cross-hosts (build=aarch64, host=x86_64); on 10.9 it builds natively.
@@ -23,7 +23,7 @@ case "$MODE" in
 esac
 export CLANG_VARIANT
 mkdir -p "$WORK"
-CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
+CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 RECAULK_A="$(fetch_recaulk)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
@@ -32,7 +32,8 @@ install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 STAGE0=""
 if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0-onbox.sh" "$CLANGDIR" "$RECAULK_A")"; fi
 write_bootstrap_toml "$SRC" "$NATIVE_PREFIX" "$BUILD_TRIPLE" "$TARGET_TRIPLE" "$CLANGDIR" $STAGE0
-write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK"
+write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK" "$CLANGDIR"
+pin_onbox_tools "$BUILD_TRIPLE" "$CLANGDIR" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 # platform: the cmake crate (which bootstrap drives LLVM through) reads
