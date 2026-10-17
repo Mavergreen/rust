@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- otool reads Mach-O load commands
+# platform: macOS-only -- clang-22's llvm-otool (macho_tools) reads Mach-O load commands
 #   usage: verify-relocatable.sh <prefix>
 #          Fails if any Mach-O under <prefix>/{bin,lib} names an absolute dependency, install name
 #          or rpath outside @-relative paths, /usr/lib, /System, and the two product prefixes. It is
@@ -7,7 +7,7 @@
 #          caught as surely as the build's own scratch dir.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
-. "$HERE/versions.sh"
+. "$HERE/versions.sh"; . "$HERE/lib-rust.sh"; macho_tools
 P="${1:?usage: verify-relocatable.sh <prefix>}"
 [ -n "$NATIVE_PREFIX" ] && [ -n "$CROSS_PREFIX" ] || { echo "FATAL: empty product prefix would allow every absolute path" >&2; exit 1; }
 n=0; bad=0
@@ -25,9 +25,9 @@ while IFS= read -r f; do
   esac
   n=$((n+1))
   paths="$(printf '%s\n%s\n%s\n' \
-    "$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}')" \
-    "$(otool -D "$f" 2>/dev/null | tail -n +2)" \
-    "$(otool -l "$f" 2>/dev/null | awk '/LC_RPATH/{r=1} r&&/ path /{print $2; r=0}')")"
+    "$("$OTOOL" -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}')" \
+    "$("$OTOOL" -D "$f" 2>/dev/null | tail -n +2)" \
+    "$("$OTOOL" -l "$f" 2>/dev/null | awk '/LC_RPATH/{r=1} r&&/ path /{print $2; r=0}')")"
   hits=""
   for p in $paths; do
     case "$p" in

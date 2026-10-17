@@ -45,5 +45,14 @@ for f in "$ROOT"/tests/*.sh; do
     echo "FAIL ${f#"$ROOT"/} reads Mach-O through \$LIPO/\$OTOOL/\$NM from macho_tools and compiles with \$MACHO_CC: on 10.9 without the Command Line Tools Apple's are xcode-select stubs (vision area 18 A)"; exit 1
   fi
 done
+# spec: shipyard vision area 18 A -- the build needs no Command Line Tools; check-release-on-10.9.sh's
+#       explicit-cc step needs them on purpose (area 18 D), and build-updater.sh's Apple clang is
+#       shipyard's updater requirement
+for f in "$ROOT"/build/*.sh; do
+  case "${f##*/}" in check-release-on-10.9.sh|build-updater.sh) continue ;; esac
+  if grep -En '(^|[^-_A-Za-z{$/])(lipo|otool|nm|install_name_tool) |/usr/bin/install_name_tool' "$f" | grep -vE '^[0-9]+:[[:space:]]*#'; then
+    echo "FAIL ${f#"$ROOT"/} reads and rewrites Mach-O through \$LIPO/\$OTOOL/\$NM/\$INSTALL_NAME_TOOL from macho_tools: on 10.9 without the Command Line Tools Apple's are xcode-select stubs (vision area 18 A)"; exit 1
+  fi
+done
 
 echo "OK version-test"

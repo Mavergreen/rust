@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- relocate_prefix runs otool and install_name_tool
+# platform: macOS-only -- relocate_prefix runs otool and install_name_tool (macho_tools picks clang-22's)
 #   usage: . build/lib-rust.sh   (after build/versions.sh; needs TARGET_TRIPLE, MACOS_MIN, WORK)
 
 write_bootstrap_toml() {
@@ -93,7 +93,7 @@ fetch_recaulk() {
   _rc="$(sh "$SHIPYARD_SCRIPTS/fetch_product_pkg.sh" recaulk "$RECAULK_VERSION" "$WORK/recaulk")" || return 1
   _a="$_rc/lib/librecaulk.a"
   [ -f "$_a" ] || { echo "FATAL: Recaulk $RECAULK_VERSION has no lib/librecaulk.a" >&2; return 1; }
-  lipo -info "$_a" 2>/dev/null | sed -n 's/.*: //p' | grep -qw x86_64 \
+  "${LIPO:-lipo}" -info "$_a" 2>/dev/null | sed -n 's/.*: //p' | grep -qw x86_64 \
     || { echo "FATAL: $_a has no x86_64 slice" >&2; return 1; }
   printf '%s\n' "$_a"
 }
@@ -241,14 +241,14 @@ loader_rel() {
 }
 
 relocate_prefix() {
-  _p="$1"; _clang="$2"; NT="/usr/bin/install_name_tool"
+  _p="$1"; _clang="$2"; NT="${INSTALL_NAME_TOOL:-install_name_tool}"
   find "$_p/bin" "$_p/lib" -type f 2>/dev/null | while IFS= read -r f; do
     file "$f" 2>/dev/null | grep -q Mach-O || continue
-    otool -l "$f" 2>/dev/null | awk '/LC_RPATH/{r=1} r&&/ path /{print $2; r=0}' | while IFS= read -r rp; do
+    "${OTOOL:-otool}" -l "$f" 2>/dev/null | awk '/LC_RPATH/{r=1} r&&/ path /{print $2; r=0}' | while IFS= read -r rp; do
       case "$rp" in "$_clang"/*|"$WORK"/*) "$NT" -delete_rpath "$rp" "$f" 2>/dev/null || true ;; esac
     done
     rel="$(loader_rel "$_p" "$f")"
-    otool -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
+    "${OTOOL:-otool}" -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
   done
 }
 
@@ -267,9 +267,9 @@ write_stage0_wrappers() {
   done
 }
 
-# platform: on 10.9 without the Command Line Tools, lipo, otool, nm, strings and /usr/bin/clang are
-#           xcode-select stubs; clang-22 ships llvm- workalikes, and the compat guard reads
-#           LIPO, OTOOL, NM and STRINGS. The build's clang-22 comes first, then the installed one;
+# platform: on 10.9 without the Command Line Tools, lipo, otool, nm, strings, install_name_tool and
+#           /usr/bin/clang are xcode-select stubs; clang-22 ships llvm- workalikes, and the compat guard
+#           reads LIPO, OTOOL, NM and STRINGS. The build's clang-22 comes first, then the installed one;
 #           MACHO_CC is a clang-22 only where its 10.9 SDK is in place
 macho_tools() {
   _pin="$(tr -d ' \t\n' < "${CLANG_PIN_FILE:-/dev/null}" 2>/dev/null)" || _pin=""
@@ -277,12 +277,14 @@ macho_tools() {
             /usr/local/mavergreen/clang22/bin; do
     [ -x "$_d/llvm-otool" ] || continue
     LIPO="$_d/llvm-lipo"; OTOOL="$_d/llvm-otool"; NM="$_d/llvm-nm"; STRINGS="$_d/llvm-strings"
+    INSTALL_NAME_TOOL="$_d/llvm-install-name-tool"
     [ -d "$_d/../SDKs/MacOSX10.9.sdk" ] && MACHO_CC="${MACHO_CC:-$_d/clang}"
     break
   done
   LIPO="${LIPO:-lipo}"; OTOOL="${OTOOL:-otool}"; NM="${NM:-nm}"; STRINGS="${STRINGS:-strings}"
+  INSTALL_NAME_TOOL="${INSTALL_NAME_TOOL:-install_name_tool}"
   MACHO_CC="${MACHO_CC:-/usr/bin/clang}"
-  export LIPO OTOOL NM STRINGS MACHO_CC
+  export LIPO OTOOL NM STRINGS INSTALL_NAME_TOOL MACHO_CC
 }
 
 # spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 10 proof 2 ruling -- a cross-hosted

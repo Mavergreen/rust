@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- x.py drives Apple toolchains; otool/install_name_tool in relocate_prefix
+# platform: macOS-only -- x.py drives Apple toolchains; relocate_prefix rewrites with clang-22's llvm tools
 #   usage: build-native.sh
 #          Stages the native (x86_64, runs on 10.9) toolchain at $NATIVE_STAGE_ROOT$NATIVE_PREFIX.
 #          On a modern Mac it cross-hosts (build=aarch64, host=x86_64); on 10.9 it builds natively.
@@ -23,7 +23,7 @@ case "$MODE" in
 esac
 export CLANG_VARIANT
 mkdir -p "$WORK"
-CLANGDIR="$(sh "$HERE/fetch-clang.sh")"
+CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 RECAULK_A="$(fetch_recaulk)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
