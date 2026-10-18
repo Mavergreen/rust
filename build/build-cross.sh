@@ -21,6 +21,7 @@ rm -f "$WORK/staged.stamp"; rm -rf "$STAGE_ROOT"
 echo "== fetch inputs =="
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
 RECAULK_A="$(fetch_recaulk)"
+MAKE_BIN="$(fetch_make)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 
 echo "== populate clang-22's 10.9 SDK (stripped from its .pkg, fetched at first use) =="
@@ -46,7 +47,7 @@ echo "== x.py install (arm64 host via system clang; target $TARGET_TRIPLE via cl
 #           find libgit2, zlib and libcurl
 # platform: clang-22 defaults to an x86_64/10.9 target
 ( cd "$SRC" && \
-  PATH="$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
+  PATH="$MAKE_BIN:$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
   CMAKE_TOOLCHAIN_FILE_aarch64_apple_darwin="$WORK/aarch64-11.0.cmake" \
   CFLAGS_aarch64_apple_darwin="-isysroot $ARM_SDK -mmacosx-version-min=11.0" \
   CXXFLAGS_aarch64_apple_darwin="-isysroot $ARM_SDK -mmacosx-version-min=11.0" \
