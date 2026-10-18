@@ -3,8 +3,8 @@
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"
-RUST_VERSION=1.95.0; RECAULK_VERSION=20261012.1; CLANG_PIN_FILE="$ROOT/components/clang/version"
-export TARGET_TRIPLE MACOS_MIN REPO_ROOT RUST_VERSION RECAULK_VERSION CLANG_PIN_FILE
+RUST_VERSION=1.95.0; RECAULK_VERSION=20261012.1; MAKE_VERSION=4.4.1-mavericks.1; CLANG_PIN_FILE="$ROOT/components/clang/version"
+export TARGET_TRIPLE MACOS_MIN REPO_ROOT RUST_VERSION RECAULK_VERSION MAKE_VERSION CLANG_PIN_FILE
 . "$ROOT/build/lib-rust.sh"
 t="$(mktemp -d "${TMPDIR:-/tmp}/stamp.XXXXXX")"; trap 'rm -rf "$t"' EXIT
 fail() { echo "FAIL $1"; exit 1; }
@@ -18,4 +18,7 @@ stage_is_current "$t/s.stamp" native || fail "a stamp written now must read as c
 grep -q "lib-rust.sh" "$t/s.stamp" || fail "the stamp must cover the recipe (lib-rust.sh), whose post-x.py steps shape the stage"
 ! grep -q "polyfill-" "$t/s.stamp" || fail "the stamp must not list the retired polyfill-*.c (Recaulk carries those back-fills)"
 grep -qx "recaulk=20261012.1" "$t/s.stamp" || fail "the stamp must record the Recaulk pin"
+grep -qx "make=4.4.1-mavericks.1" "$t/s.stamp" || fail "the stamp must record the make pin"
+( MAKE_VERSION=4.4.1-mavericks.2; ! stage_is_current "$t/s.stamp" native ) \
+  || fail "bumping make must invalidate the stage (it builds cargo's vendored OpenSSL)"
 echo "OK stamp-test"

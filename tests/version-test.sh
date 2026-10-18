@@ -29,6 +29,8 @@ echo "$out" | grep -qx "FULL=$U-mavericks.4" || { echo "FAIL local FULL: $out"; 
   [ "$NATIVE_SHORT" = rust ] && [ "$CROSS_SHORT" = rust-cross ] || { echo "FAIL short names"; exit 1; }
   [ "$RECAULK_VERSION" = "$(tr -d ' \t\n' < "$ROOT/components/recaulk/version")" ] \
     || { echo "FAIL RECAULK_VERSION must come from components/recaulk/version (release-state reads whole files)"; exit 1; }
+  [ "$MAKE_VERSION" = "$(tr -d ' \t\n' < "$ROOT/components/make/version")" ] \
+    || { echo "FAIL MAKE_VERSION must come from components/make/version (release-state reads whole files)"; exit 1; }
   case "$CROSS_STAGE_ROOT" in */work-cross/stage) : ;; *) echo "FAIL CROSS_STAGE_ROOT=$CROSS_STAGE_ROOT"; exit 1 ;; esac
   case "$NATIVE_STAGE_ROOT" in */work-native/stage) : ;; *) echo "FAIL NATIVE_STAGE_ROOT=$NATIVE_STAGE_ROOT"; exit 1 ;; esac
   [ -z "${WORK:-}" ] || { echo "FAIL WORK must be unset without RUST_VARIANT, so no script shares one work dir by accident"; exit 1; }
@@ -37,6 +39,9 @@ echo "$out" | grep -qx "FULL=$U-mavericks.4" || { echo "FAIL local FULL: $out"; 
   case "$WORK" in */work-native) : ;; *) echo "FAIL WORK=$WORK for RUST_VARIANT=native"; exit 1 ;; esac
 ) || exit 1
 grep -q 'fetch_product_pkg\.sh' "$ROOT/build/fetch-clang.sh" || { echo "FAIL fetch-clang.sh takes clang-22's pkg through shipyard's fetch_product_pkg.sh, which retries and verifies it against the release's SHA256SUMS"; exit 1; }
+for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh; do
+  grep -q 'PATH="$MAKE_BIN:' "$f" || { echo "FAIL ${f#"$ROOT"/} puts the family make first on x.py's PATH: openssl-src runs a bare make, which on 10.9 is a Command Line Tools stub"; exit 1; }
+done
 for f in "$ROOT"/build/fetch-*.sh; do
   if grep -En '(^|[^_])curl ' "$f"; then echo "FAIL ${f#"$ROOT"/} downloads through shipyard_curl or shipyard_fetch_verified, which retry and verify"; exit 1; fi
 done

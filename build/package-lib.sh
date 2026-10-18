@@ -39,6 +39,6 @@ package_variant() {
   rm -f "$comp"
   sh "$SHIPYARD_SCRIPTS/build-info.sh" "$REPO_ROOT/dist/build-info-$v.txt" \
     variant="$v" arch="$arch" prefix="$prefix" pkg="$(basename "$out")" identifier="$id" \
-    rust="$RUST_VERSION" clang="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" recaulk="$RECAULK_VERSION" target="$TARGET_TRIPLE"
+    rust="$RUST_VERSION" clang="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" recaulk="$RECAULK_VERSION" make="$MAKE_VERSION" target="$TARGET_TRIPLE"
   echo "built $out"
 }

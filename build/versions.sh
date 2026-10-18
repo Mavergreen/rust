@@ -21,6 +21,9 @@ export CLANG_PIN_FILE="$REPO_ROOT/components/clang/version"
 export RECAULK_PIN_FILE="$REPO_ROOT/components/recaulk/version"
 RECAULK_VERSION="$(tr -d ' \t\n' < "$RECAULK_PIN_FILE")"; export RECAULK_VERSION
 [ -n "$RECAULK_VERSION" ] || { echo "versions.sh: empty $RECAULK_PIN_FILE" >&2; exit 1; }
+export MAKE_PIN_FILE="$REPO_ROOT/components/make/version"
+MAKE_VERSION="$(tr -d ' \t\n' < "$MAKE_PIN_FILE")"; export MAKE_VERSION
+[ -n "$MAKE_VERSION" ] || { echo "versions.sh: empty $MAKE_PIN_FILE" >&2; exit 1; }
 
 export TARGET_TRIPLE="x86_64-apple-darwin"
 export MACOS_MIN="10.9"

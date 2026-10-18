@@ -26,6 +26,7 @@ mkdir -p "$WORK"
 CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 RECAULK_A="$(fetch_recaulk)"
+MAKE_BIN="$(fetch_make)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
 install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
@@ -38,7 +39,7 @@ CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 # platform: the cmake crate (which bootstrap drives LLVM through) reads
 #           CMAKE_TOOLCHAIN_FILE_<target, dashes as underscores> before CMAKE_TOOLCHAIN_FILE
-( cd "$SRC" && PATH="$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
+( cd "$SRC" && PATH="$MAKE_BIN:$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
     DESTDIR="$NATIVE_STAGE_ROOT" \
     MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
     CMAKE_TOOLCHAIN_FILE_x86_64_apple_darwin="$WORK/x86_64-10.9.cmake" \

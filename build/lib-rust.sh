@@ -111,6 +111,14 @@ fetch_recaulk() {
   printf '%s\n' "$_a"
 }
 
+# platform: cargo's vendored OpenSSL builds with a bare `make`, which on 10.9 is a Command Line Tools
+#           stub; the family's GNU make goes first on x.py's PATH
+fetch_make() {
+  _mk="$(sh "$SHIPYARD_SCRIPTS/fetch_product_pkg.sh" make "$MAKE_VERSION" "$WORK/make")" || return 1
+  [ -x "$_mk/bin/make" ] || { echo "FATAL: make $MAKE_VERSION has no bin/make" >&2; return 1; }
+  printf '%s\n' "$_mk/bin"
+}
+
 # platform: clang-22's clang.cfg links <CFGDIR>/../lib/librecaulk.a into everything it links, rustc and
 #           cargo included; overwriting it keeps build-info's recaulk= true of every shipped binary
 install_recaulk_into_clang() { cp -f "$1" "$2/lib/librecaulk.a"; }
@@ -311,8 +319,8 @@ prune_proc_macro_dylibs() {
 }
 
 stage_stamp() {
-  printf 'variant=%s\nrust=%s\nclang=%s\nrecaulk=%s\n' \
-    "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$RECAULK_VERSION"
+  printf 'variant=%s\nrust=%s\nclang=%s\nrecaulk=%s\nmake=%s\n' \
+    "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$RECAULK_VERSION" "$MAKE_VERSION"
   for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh"; do
     printf '%s %s\n' "$(shasum -a 256 "$_f" | awk '{print $1}')" "${_f#"$REPO_ROOT"/}"
   done
