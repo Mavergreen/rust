@@ -98,8 +98,7 @@ clang22() {
     echo "clang22 is installed without its 10.9 SDK: run sudo longboat install 10.9"; return 1
   fi
   if [ ! -d "$MG/longboat" ]; then
-    lb_tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/Mavergreen/longboat/releases/latest)"
-    lb_tag="${lb_tag##*/}"
+    lb_tag="$(tr -d ' \t\n' < "$ROOT/components/longboat/version")"
     lb="$(gh_pkg longboat "$lb_tag" "longboat-$lb_tag.pkg")" || return 1
     sudo installer -pkg "$lb" -target / || return 1
     : > "$w/installed-longboat"

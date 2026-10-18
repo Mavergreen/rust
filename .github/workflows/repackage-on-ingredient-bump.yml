@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - components/**
+      # spec: INGREDIENTS.md "Check-only pins" -- nothing shipped is built with Longboat
+      - '!components/longboat/**'
 
 jobs:
   repackage:

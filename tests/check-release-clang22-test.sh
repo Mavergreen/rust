@@ -13,9 +13,9 @@ scenario() {  # scenario NAME PREINSTALLED CLANG_INSTALL_RC -> prints the sudo l
   crc=$3; MG="$t/$1/mg"; w="$t/$1/w"; mkdir -p "$MG/bin" "$w"; LOG="$t/$1/log"; : > "$LOG"
   for p in $2; do mkdir -p "$MG/$p"; done
   (
-    MAVERICKS_CHECK_PREFIX="$MG"; C22="$MG/clang22"; ROOT="$ROOT"
-    curl() { echo "https://github.com/Mavergreen/longboat/releases/tag/20261012.1"; }
-    gh_pkg() { echo "$w/$1.pkg"; }
+    MAVERICKS_CHECK_PREFIX="$MG"; C22="$MG/clang22"; ROOT="$ROOT"; GHLOG="$t/$1/gh"
+    curl() { echo "https://github.com/Mavergreen/longboat/releases/tag/19990101.1"; }
+    gh_pkg() { echo "$*" >> "$GHLOG"; echo "$w/$1.pkg"; }
     sudo() {
       echo "$*" >> "$LOG"
       case "$*" in
@@ -34,6 +34,9 @@ scenario() {  # scenario NAME PREINSTALLED CLANG_INSTALL_RC -> prints the sudo l
 
 got="$(scenario fresh "" 0)"
 [ "$got" = "clang22 sdk109 longboat " ] || fail "a fresh box: the run removes everything it installed, got '$got'"
+lbv="$(tr -d ' \t\n' < "$ROOT/components/longboat/version")"
+grep -qx "longboat $lbv longboat-$lbv.pkg" "$t/fresh/gh" \
+  || fail "Longboat comes from the pin in components/longboat/version, never whatever release is newest (asked for: $(grep longboat "$t/fresh/gh"))"
 got="$(scenario haslb "longboat sdk109" 0)"
 [ "$got" = "clang22 " ] || fail "Longboat and sdk109 the user already had must survive the check, got '$got'"
 grep -q 'installer -pkg .*longboat' "$t/haslb/log" && fail "an installed Longboat must not be reinstalled"
