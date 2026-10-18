@@ -13,6 +13,15 @@ built with.
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
+## Check-only pins
+
+Pinned so the release check is reproducible, but nothing shipped is built with them, so a bump
+neither repackages nor appears in the declared state.
+
+| Tool | Pinned in | Renovate | Used by |
+|---|---|---|---|
+| Longboat (installs the 10.9 SDK that clang22 needs) | `components/longboat/version` | ✅ `github-releases` on `Mavergreen/longboat` | `build/check-release-on-10.9.sh`, on a box without clang22 |
+
 ## How the back-fill reaches a 10.9 binary
 
 rustc links Recaulk's `librecaulk.a` into every x86_64 binary it links, one of two ways:

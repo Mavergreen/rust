@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/Library/Caches/ccache
-          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
+          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
           restore-keys: ccache-${{ matrix.variant }}-
       - name: Build
         id: build
@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/Library/Caches/ccache
-          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Package
         run: sh build/package-${{ matrix.variant }}-pkg.sh
       - name: Tests
