@@ -334,10 +334,13 @@ stage_is_current() {
 guard_prefix() {
   _gd="$(mktemp -d "${TMPDIR:-/tmp}/guard.XXXXXX")"
   find "$1/bin" "$1/lib" -type f -perm -u+x | while IFS= read -r _f; do
-    case "$(file "$_f")" in *Mach-O*executable*|*Mach-O*"dynamically linked shared library"*) : ;; *) continue ;; esac
-    _a="$("${LIPO:-lipo}" -info "$_f" 2>/dev/null | sed -n 's/.*architecture: //p; s/.* are: //p' | sed 's/ *$//')"
+    _t="$(file "$_f")"
+    case "$_t" in *Mach-O*executable*|*Mach-O*"dynamically linked shared library"*) : ;; *) continue ;; esac
+    _a="$("${LIPO:-lipo}" -info "$_f" 2>"$_gd.err" | sed -n 's/.*architecture: //p; s/.* are: //p' | sed 's/ *$//')"
+    [ -n "$_a" ] || { echo "FATAL: ${LIPO:-lipo} -info names no arch for $_t" >&2; cat "$_gd.err" >&2; exit 1; }
     printf '%s\n' "$_f" >> "$_gd/$(printf '%s' "$_a" | tr ' ' '+')"
-  done
+  done || { rm -rf "$_gd" "$_gd.err"; return 1; }
+  rm -f "$_gd.err"
   [ -n "$(ls "$_gd")" ] || { echo "FATAL: no Mach-O under $1 -- nothing guarded" >&2; rm -rf "$_gd"; return 1; }
   _rc=0
   for _l in "$_gd"/*; do
