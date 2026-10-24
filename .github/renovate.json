@@ -51,5 +51,15 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^(?<major>\\d{8})\\.(?<minor>\\d+)$"
     }
+  ],
+  "packageRules": [
+    {
+      "description": "clang-22 links rust's pinned Recaulk in place of its own (install_recaulk_into_clang), so the two must move together: since 22.1.8-mavericks.5 clang-22 carries no libc++abi.a and needs Recaulk 20261019.1 or later, and that Recaulk's __cxa back-fills collide with an older clang-22's libc++abi.a",
+      "matchDepNames": [
+        "Mavergreen/clang-22",
+        "recaulk"
+      ],
+      "groupName": "clang-22 and Recaulk"
+    }
   ]
 }
