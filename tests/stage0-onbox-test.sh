@@ -16,4 +16,6 @@ for b in rustc cargo; do
 done
 grep -q "exec \"$t/dist/rustc/bin/rustc\"" "$t/s0/bin/rustc" || fail "rustc wrapper execs the wrong binary"
 grep -q "exec \"$t/dist/cargo/bin/cargo\"" "$t/s0/bin/cargo" || fail "cargo wrapper execs the wrong binary"
+grep -q -- '-force_load,"$RECAULK_A".* -lc++abi' "$ROOT/build/fetch-stage0-onbox.sh" \
+  || fail "the stage0 dylib force-loads librecaulk.a, whose C++ catch rules call 10.9's libc++abi"
 echo "OK stage0-onbox-test"
