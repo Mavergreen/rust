@@ -56,6 +56,10 @@ ar = "$_clang/bin/llvm-ar"
 ranlib = "$_clang/bin/llvm-ranlib"
 linker = "$_clang/bin/clang++"
 EOF
+    # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
+    #           the linker driver; since 22.1.8-mavericks.8 clang-22's cfgs let a later version win,
+    #           and a -C link-arg comes after rustc's own
+    printf 'rustflags = ["-Clink-arg=-mmacosx-version-min=%s"]\n' "$MACOS_MIN"
     if [ -n "${ARM64_LINKER:-}" ]; then
       printf '\n[target.aarch64-apple-darwin]\nlinker = "%s"\n' "$ARM64_LINKER"
     fi

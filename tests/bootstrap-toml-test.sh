@@ -41,6 +41,9 @@ for v in cross xhost onbox; do
   has "$v" 'CMAKE_IGNORE_PREFIX_PATH'
   hasnt "$v" '[target.aarch64-apple-darwin]'
   [ "$(grep -c '^\[target\.x86_64-apple-darwin\]' "$t/$v/bootstrap.toml")" = 1 ] || fail "$v: exactly one x86_64 target section"
+  sed -n '/^\[target\.x86_64-apple-darwin\]/,/^\[/p' "$t/$v/bootstrap.toml" \
+    | grep -qx 'rustflags = \["-Clink-arg=-mmacosx-version-min=10.9"\]' \
+    || fail "$v: x86_64 links must end with the 10.9 floor (rustc passes 10.12, and clang-22 lets a later version win)"
 done
 
 write_x86_cmake_toolchain "$t/tc.cmake" /sdk109 /c
