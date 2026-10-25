@@ -22,8 +22,9 @@ cp -R "$D/rust-std-$H/lib/rustlib/$H" "$D/rustc/lib/rustlib/"
 # platform: dyld's flat-namespace lookup finds only the symbols an injected dylib exports
 # platform: -all_load also forces compiler-rt's os_version_check.o, which needs
 #           _availability_version_check, absent from 10.9's libSystem
+# platform: -force_load takes librecaulk.a's C++ catch rules too, which call 10.9's libc++abi
 "$CLANGDIR/bin/clang" --no-default-config -dynamiclib -mmacosx-version-min=10.9 \
-  -Wl,-force_load,"$RECAULK_A" -framework CoreFoundation -framework Security -framework CoreServices -lobjc \
+  -Wl,-force_load,"$RECAULK_A" -framework CoreFoundation -framework Security -framework CoreServices -lobjc -lc++abi \
   -install_name "$S0/librecaulk-stage0.dylib" -o "$S0/librecaulk-stage0.dylib" >&2
 write_stage0_wrappers "$S0" "$D"
 echo "$S0"

@@ -130,6 +130,8 @@ install_recaulk_into_clang() { cp -f "$1" "$2/lib/librecaulk.a"; }
 # platform: rustc puts -lSystem before -C link-args, and a modern SDK's libSystem exports clock_gettime
 # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
 #           the linker driver; the last -mmacosx-version-min on the line wins
+# platform: -force_load takes every member of librecaulk.a, its C++ catch rules among them, and those
+#           call 10.9's /usr/lib/libc++abi.dylib
 wrap_linking_tool() {
   _p="$1"; _tool="$2"; _mode="$3"
   [ "$(head -c2 "$_p/bin/$_tool" 2>/dev/null)" = '#!' ] && return 0
@@ -241,7 +243,7 @@ if [ "\$wants" = 1 ]; then
       -C link-arg=-framework -C link-arg=CoreFoundation \\
       -C link-arg=-framework -C link-arg=Security \\
       -C link-arg=-framework -C link-arg=CoreServices \\
-      -C link-arg=-lobjc "\$@"
+      -C link-arg=-lobjc -C link-arg=-lc++abi "\$@"
   fi
   [ "\$first" = 0 ] || set -- "\$first" "\$@"
 fi

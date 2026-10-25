@@ -89,6 +89,7 @@ out="$("$t/native/bin/rustc" -Clinker="$D" x.rs)"; defers "case 13 -Clinker=<cla
 out="$("$t/native/bin/rustc" -C "linker=$D" x.rs)"; defers "case 13 -C linker=<clang22> as two arguments" "$out"
 out="$("$t/native/bin/rustc" -C linker="$t/lk/cc-plain" x.rs)"
 case "$out" in *force_load*"-framework -C link-arg=CoreServices"*) : ;; *) fail "case 14 a linker that does not link librecaulk.a gets the force-load and Recaulk's frameworks: $out" ;; esac
+case "$out" in *force_load*"-C link-arg=-lc++abi"*) : ;; *) fail "case 14 a force-loaded librecaulk.a pulls in its C++ catch rules, which call 10.9's libc++abi: $out" ;; esac
 out="$("$t/native/bin/rustc" -C linker="$t/lk/cc-refuses" x.rs 2>"$t/err")" || fail "case 15 a linker that rejects -### must not fail the wrapper"
 case "$out" in *force_load*) : ;; *) fail "case 15 a linker that rejects -### gets the force-load: $out" ;; esac
 [ ! -s "$t/err" ] || fail "case 15 the probe's complaints must not reach the user: $(cat "$t/err")"
