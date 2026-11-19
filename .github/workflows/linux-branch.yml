@@ -33,7 +33,9 @@ jobs:
         shell: bash
     env:
       MAVERICKS_USE_CCACHE: "1"
-      CCACHE_COMPILERCHECK: "%compiler% --version"
+      # platform: the build triple's compilers are wrapper scripts whose flags --version cannot see;
+      #           content hashes the wrapper itself, which the build writes byte-identically each run
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
