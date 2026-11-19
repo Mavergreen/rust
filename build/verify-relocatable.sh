@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- clang-22's llvm-otool (macho_tools) reads Mach-O load commands
+# platform: host-agnostic
 #   usage: verify-relocatable.sh <prefix>
 #          Fails if any Mach-O under <prefix>/{bin,lib} names an absolute dependency, install name
 #          or rpath outside @-relative paths, /usr/lib, /System, and the two product prefixes. It is

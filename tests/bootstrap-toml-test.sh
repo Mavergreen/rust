@@ -80,4 +80,56 @@ mkdir -p "$t/cc"
 MAVERICKS_USE_CCACHE=1 write_bootstrap_toml "$t/cc" /p aarch64-apple-darwin aarch64-apple-darwin /c
 grep -qx 'ccache = true' "$t/cc/bootstrap.toml" || fail "MAVERICKS_USE_CCACHE=1 must set [build] ccache = true (LLVM is most of a cold CI build)"
 hasnt cross 'ccache'
+
+py="$(command -v python3 || echo /opt/pkg/bin/python3)"
+golden() {
+  sed "s#^python = \"$py\"\$#python = \"@PYTHON@\"#" "$t/$1/bootstrap.toml" | cmp -s - "$ROOT/tests/fixtures/bootstrap/$2.toml" \
+    || { sed "s#^python = \"$py\"\$#python = \"@PYTHON@\"#" "$t/$1/bootstrap.toml" | diff "$ROOT/tests/fixtures/bootstrap/$2.toml" - || :
+         fail "$1: today's Darwin build hosts must write tests/fixtures/bootstrap/$2.toml byte for byte"; }
+}
+golden cross cross; golden xhost xhost; golden onbox onbox; golden pinned pinned
+
+L=x86_64-unknown-linux-gnu
+section() { sed -n "/^\\[target\\.$2\\]\$/,/^\\[/p" "$t/$1/bootstrap.toml" | sed '/^\[/d; /^$/d'; }
+mkdir -p "$t/lnative" "$t/lcross" "$t/ltar" "$t/lnocc"
+LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
+  write_bootstrap_toml "$t/lnative" /usr/local/mavergreen/rust $L x86_64-apple-darwin /c /s0
+LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ ARM64_LINKER=/w/cc-arm64-pinned \
+  write_bootstrap_toml "$t/lcross" /usr/local/mavergreen/rust-cross $L aarch64-apple-darwin /c /s0
+LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
+  write_bootstrap_toml "$t/ltar" /opt/mavergreen/rust $L $L /c /s0
+has lnative 'build = "x86_64-unknown-linux-gnu"'
+has lnative 'host = ["x86_64-apple-darwin"]'
+has lnative 'target = ["x86_64-apple-darwin"]'
+has lnative 'targets = "X86"'
+has lnative 'local-rebuild = true'
+hasnt lnative 'deny-warnings = false'
+has lcross 'host = ["aarch64-apple-darwin"]'
+has lcross 'target = ["aarch64-apple-darwin", "x86_64-apple-darwin"]'
+has lcross 'targets = "AArch64;X86"'
+[ "$(section lcross aarch64-apple-darwin)" = 'linker = "/w/cc-arm64-pinned"' ] \
+  || fail "lcross: [target.aarch64-apple-darwin] linker must be \$ARM64_LINKER (got '$(section lcross aarch64-apple-darwin)')"
+has ltar 'host = ["x86_64-unknown-linux-gnu"]'
+has ltar 'target = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin"]'
+has ltar 'targets = "X86"'
+want='cc = "/w/linux-host/cc"
+cxx = "/w/linux-host/c++"
+ar = "/c/bin/llvm-ar"
+ranlib = "/c/bin/llvm-ranlib"
+linker = "/w/linux-host/c++"'
+for v in lnative lcross ltar; do
+  [ "$(grep -c "^\\[target\\.$L\\]\$" "$t/$v/bootstrap.toml")" = 1 ] || fail "$v: exactly one [target.$L] section"
+  [ "$(section $v $L)" = "$want" ] \
+    || fail "$v: [target.$L] compiles and links the build triple with clang22 for Linux (D4) and its llvm-ar and llvm-ranlib (got '$(section $v $L)')"
+  sed -n '/^\[target\.x86_64-apple-darwin\]/,/^\[/p' "$t/$v/bootstrap.toml" | grep -qx 'cc = "/c/bin/clang"' \
+    || fail "$v: the Darwin target still compiles with clang22's clang.cfg"
+done
+for v in cross xhost onbox pinned; do hasnt "$v" "[target.$L]"; done
+if ( unset LINUX_HOST_CC LINUX_HOST_CXX; write_bootstrap_toml "$t/lnocc" /p $L x86_64-apple-darwin /c ) 2> "$t/lnocc.err"; then
+  fail "a Linux build triple with no LINUX_HOST_CC/LINUX_HOST_CXX must fail, not write an empty compiler"
+fi
+grep -q LINUX_HOST_CC "$t/lnocc.err" || fail "the failure must name LINUX_HOST_CC"
+( unset SDKROOT CC CXX; pin_onbox_tools $L /c /sdk109
+  [ -z "${SDKROOT:-}${CC:-}${CXX:-}" ] ) \
+  || fail "a Linux build: the cc crate must not hand the 10.9 SDK or clang22's clang.cfg to x86_64-unknown-linux-gnu build scripts"
 echo "OK bootstrap-toml-test"

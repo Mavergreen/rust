@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- relocate_prefix runs otool and install_name_tool (macho_tools picks clang-22's)
+# platform: host-agnostic
 #   usage: . build/lib-rust.sh   (after build/versions.sh; needs TARGET_TRIPLE, MACOS_MIN, WORK)
 
 write_bootstrap_toml() {
@@ -7,6 +7,10 @@ write_bootstrap_toml() {
   _py="$(command -v python3 || echo /opt/pkg/bin/python3)"
   if [ "$_host" = "$TARGET_TRIPLE" ]; then _targets="\"$TARGET_TRIPLE\""; else _targets="\"$_host\", \"$TARGET_TRIPLE\""; fi
   case "$_build$_host" in *aarch64*) _llvm_targets="AArch64;X86" ;; *) _llvm_targets="X86" ;; esac
+  if [ "$_build" = x86_64-unknown-linux-gnu ] && { [ -z "${LINUX_HOST_CC:-}" ] || [ -z "${LINUX_HOST_CXX:-}" ]; }; then
+    echo "FATAL: a Linux build triple compiles with LINUX_HOST_CC and LINUX_HOST_CXX (linux_host_compilers), and one is unset" >&2
+    return 1
+  fi
   {
     printf '[build]\nbuild = "%s"\nhost = ["%s"]\ntarget = [%s]\n' "$_build" "$_host" "$_targets"
     if [ -n "$_stage0" ]; then
@@ -60,10 +64,45 @@ EOF
     #           the linker driver; since 22.1.8-mavericks.8 clang-22's cfgs let a later version win,
     #           and a -C link-arg comes after rustc's own
     printf 'rustflags = ["-Clink-arg=-mmacosx-version-min=%s"]\n' "$MACOS_MIN"
+    if [ "$_build" = x86_64-unknown-linux-gnu ]; then
+      printf '\n[target.x86_64-unknown-linux-gnu]\ncc = "%s"\ncxx = "%s"\nar = "%s/bin/llvm-ar"\nranlib = "%s/bin/llvm-ranlib"\nlinker = "%s"\n' \
+        "$LINUX_HOST_CC" "$LINUX_HOST_CXX" "$_clang" "$_clang" "$LINUX_HOST_CXX"
+    fi
     if [ -n "${ARM64_LINKER:-}" ]; then
       printf '\n[target.aarch64-apple-darwin]\nlinker = "%s"\n' "$ARM64_LINKER"
     fi
   } > "$_src/bootstrap.toml"
+}
+
+# platform: clang22's Linux archive ships a libc++ for Darwin targets only, so a Linux build triple's C++
+#           links shipyard's host libc++, built by clang22 from the llvm-project release clang22 is, and
+#           with the libgcc runtime that libc++abi was built for
+# platform: clang targets core2 for x86_64 macOS and plain x86-64 for Linux; the build triple compiles for
+#           core2, so no code path keys on the build machine's CPU (nodejs-24 R3)
+# platform: a flag only a link reads draws -Wunused-command-line-argument from a compile, and CMake's
+#           flag checks read that warning as a missing flag
+_write_linux_host_compiler() {
+  {
+    printf '#!/bin/sh\nlink=yes\nfor a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only) link=no ;; esac; done\n'
+    printf '[ "$link" = no ] || exec %s %s -fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc %s "$@" %s\n' "$2" "$3" "$4" "$5"
+    printf 'exec %s %s "$@"\n' "$2" "$3"
+  } > "$1"
+  chmod +x "$1"
+}
+
+linux_host_compilers() {
+  [ "$(uname -s)" = Linux ] || return 0
+  _lcxx="$(sh "$SHIPYARD_SCRIPTS/fetch_host_libcxx.sh" "$CLANG_PIN_DIR" "$1")" \
+    || { echo "FATAL: fetch_host_libcxx.sh gave no host libc++ for $1" >&2; return 1; }
+  for _f in lib/libc++.a lib/libc++abi.a include/c++/v1/__config_site; do
+    [ -f "$_lcxx/$_f" ] || { echo "FATAL: the host libc++ at $_lcxx has no $_f" >&2; return 1; }
+  done
+  _d4="--no-default-config --target=x86_64-unknown-linux-gnu -march=core2"
+  mkdir -p "$WORK/linux-host"
+  _write_linux_host_compiler "$WORK/linux-host/cc" "'$1/bin/clang'" "$_d4" "" ""
+  _write_linux_host_compiler "$WORK/linux-host/c++" "'$1/bin/clang++'" "$_d4 -nostdinc++ -isystem '$_lcxx/include/c++/v1'" \
+    -nostdlib++ "'$_lcxx/lib/libc++.a' '$_lcxx/lib/libc++abi.a' -lpthread"
+  LINUX_HOST_CC="$WORK/linux-host/cc"; LINUX_HOST_CXX="$WORK/linux-host/c++"; export LINUX_HOST_CC LINUX_HOST_CXX
 }
 
 # spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 3 cmake ruling -- bootstrap 1.95
@@ -137,6 +176,7 @@ fetch_make() {
 clang_work_copy() {
   _cw="$WORK/clang22-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")"
   if [ ! -x "$_cw/bin/clang" ]; then
+    for _old in "$WORK"/clang22-*; do [ "$_old" = "$_cw" ] || rm -rf "$_old"; done
     rm -rf "$_cw" "$_cw.part"; mkdir -p "$WORK"
     cp -pR "$1" "$_cw.part" && mv "$_cw.part" "$_cw" || { rm -rf "$_cw.part"; echo "FATAL: could not copy $1 to $_cw" >&2; return 1; }
   fi
@@ -277,7 +317,6 @@ EOF
 
 wrap_rustc() { wrap_linking_tool "$1" rustc "$2"; }
 
-# platform: llvm-install-name-tool crashes when run standalone; /usr/bin/install_name_tool does not
 loader_rel() {
   _sub="$(dirname "$2")"; _sub="${_sub#"$1"/}"
   _n=1; _r="$_sub"
@@ -321,19 +360,33 @@ write_stage0_wrappers() {
 #           /usr/bin/clang are xcode-select stubs; clang-22 ships llvm- workalikes, and the compat guard
 #           reads LIPO, OTOOL, NM and STRINGS. The build's clang-22 comes first, then the installed one;
 #           MACHO_CC is a clang-22 only where its 10.9 SDK is in place
+# platform: Linux has no Mach-O tools and no /usr/bin/clang, so there clang22's are the only ones
 macho_tools() {
-  _pin="$(tr -d ' \t\n' < "${CLANG_PIN_FILE:-/dev/null}" 2>/dev/null)" || _pin=""
-  for _d in ${CLANGDIR:+"$CLANGDIR/bin"} ${_pin:+"${WORK_ROOT:-/nonexistent}"/work-*/clang22-"$_pin"/bin} \
-            /usr/local/mavergreen/clang22/bin; do
+  if [ "$(uname -s)" = Linux ]; then
+    [ -n "${CLANGDIR:-}" ] || { echo "FATAL: on Linux macho_tools reads clang22's Mach-O tools, and CLANGDIR is unset" >&2; return 1; }
+    set -- "$CLANGDIR/bin"
+  else
+    _pin="$(tr -d ' \t\n' < "${CLANG_PIN_FILE:-/dev/null}" 2>/dev/null)" || _pin=""
+    set -- ${CLANGDIR:+"$CLANGDIR/bin"} ${_pin:+"${WORK_ROOT:-/nonexistent}"/work-*/clang22-"$_pin"/bin} \
+           /usr/local/mavergreen/clang22/bin
+  fi
+  _found=""
+  for _d do
     [ -x "$_d/llvm-otool" ] || continue
+    _found="$_d"
     LIPO="$_d/llvm-lipo"; OTOOL="$_d/llvm-otool"; NM="$_d/llvm-nm"; STRINGS="$_d/llvm-strings"
     INSTALL_NAME_TOOL="$_d/llvm-install-name-tool"
     [ -d "$_d/../SDKs/MacOSX10.9.sdk" ] && MACHO_CC="${MACHO_CC:-$_d/clang}"
     break
   done
-  LIPO="${LIPO:-lipo}"; OTOOL="${OTOOL:-otool}"; NM="${NM:-nm}"; STRINGS="${STRINGS:-strings}"
-  INSTALL_NAME_TOOL="${INSTALL_NAME_TOOL:-install_name_tool}"
-  MACHO_CC="${MACHO_CC:-/usr/bin/clang}"
+  if [ "$(uname -s)" = Linux ]; then
+    [ -n "$_found" ] || { echo "FATAL: $CLANGDIR/bin has no llvm-otool" >&2; return 1; }
+    MACHO_CC="${MACHO_CC:-$CLANGDIR/bin/clang}"
+  else
+    LIPO="${LIPO:-lipo}"; OTOOL="${OTOOL:-otool}"; NM="${NM:-nm}"; STRINGS="${STRINGS:-strings}"
+    INSTALL_NAME_TOOL="${INSTALL_NAME_TOOL:-install_name_tool}"
+    MACHO_CC="${MACHO_CC:-/usr/bin/clang}"
+  fi
   export LIPO OTOOL NM STRINGS INSTALL_NAME_TOOL MACHO_CC
 }
 
@@ -367,11 +420,16 @@ record_build_tools() {
   } >> "$1"
 }
 
+# platform: a Mac has shasum and no sha256sum; a Linux runner has both, a minimal Linux image only sha256sum
+_sha256() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else sha256sum "$1"; fi | awk '{print $1}'
+}
+
 stage_stamp() {
   printf 'variant=%s\nrust=%s\nclang=%s\nrecaulk=%s\nmake=%s\n' \
     "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$RECAULK_VERSION" "$MAKE_VERSION"
   for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh"; do
-    printf '%s %s\n' "$(shasum -a 256 "$_f" | awk '{print $1}')" "${_f#"$REPO_ROOT"/}"
+    printf '%s %s\n' "$(_sha256 "$_f")" "${_f#"$REPO_ROOT"/}"
   done
 }
 
