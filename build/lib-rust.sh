@@ -89,11 +89,13 @@ EOF
 # platform: a Linux build exports SDKROOT for rustc's Apple links (pin_linux_build_sdk), and the build
 #           triple's C and C++ must not see the 10.9 SDK
 # platform: with llvm.use-libcxx rustc_llvm links -lc++, which must find the host libc++.a
+# platform: rustc links with -nodefaultlibs, which leaves -rtlib and --unwindlib unused, and bootstrap
+#           denies the linker warning (linker_messages)
 _write_linux_host_compiler() {
   {
     printf '#!/bin/sh\nunset SDKROOT\nlink=yes\n'
     printf 'for a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only|--version|-dumpversion|-dumpmachine|-print-*) link=no ;; esac; done\n'
-    printf '[ "$link" = no ] || exec %s %s -fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc %s "$@" %s\n' "$2" "$3" "$4" "$5"
+    printf '[ "$link" = no ] || exec %s %s -fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc -Wno-unused-command-line-argument %s "$@" %s\n' "$2" "$3" "$4" "$5"
     printf 'exec %s %s "$@"\n' "$2" "$3"
   } > "$1"
   chmod +x "$1"

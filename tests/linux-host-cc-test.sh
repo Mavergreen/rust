@@ -41,7 +41,7 @@ PATH="$t/linux:$PATH" linux_host_compilers "$t/c" || fail "linux_host_compilers 
   || fail "LINUX_HOST_CC and LINUX_HOST_CXX must be exported"
 
 d4='--no-default-config --target=x86_64-unknown-linux-gnu -march=core2'
-ld='-fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc'
+ld='-fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc -Wno-unused-command-line-argument'
 inc="-nostdinc++ -isystem $t/lcxx/include/c++/v1"
 "$LINUX_HOST_CC" -c x.c -o x.o
 [ "$(args clang)" = "$d4 -c x.c -o x.o" ] \
