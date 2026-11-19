@@ -17,7 +17,8 @@ printf '%s\n' "\$@" > "$t/fetch.args"
 echo "$t/lcxx"
 EOF
 for c in clang clang++; do
-  printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/%s.args"\n' "$t" "$c" > "$t/c/bin/$c"; chmod +x "$t/c/bin/$c"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/%s.args"\nprintf "%%s" "${SDKROOT-unset}" > "%s/%s.sdkroot"\n' "$t" "$c" "$t" "$c" \
+    > "$t/c/bin/$c"; chmod +x "$t/c/bin/$c"
 done
 : > "$t/lcxx/lib/libc++.a"; : > "$t/lcxx/lib/libc++abi.a"; : > "$t/lcxx/include/c++/v1/__config_site"
 printf '#!/bin/sh\ncase "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac\n' > "$t/linux/uname"
@@ -55,8 +56,16 @@ done
 [ "$(args clang++)" = "$d4 $inc -c y.cpp -o y.o" ] \
   || fail "c++ compiling: D4's flags and the host libc++'s headers only (got '$(args clang++)')"
 "$LINUX_HOST_CXX" y.o -o y
-[ "$(args clang++)" = "$d4 $inc $ld -nostdlib++ y.o -o y $t/lcxx/lib/libc++.a $t/lcxx/lib/libc++abi.a -lpthread" ] \
-  || fail "c++ linking: the host libc++ and libc++abi, static, after the objects (got '$(args clang++)')"
+[ "$(args clang++)" = "$d4 $inc $ld -nostdlib++ -L$t/lcxx/lib y.o -o y $t/lcxx/lib/libc++.a $t/lcxx/lib/libc++abi.a -lpthread" ] \
+  || fail "c++ linking: the host libc++ and libc++abi, static, after the objects, and -lc++ (rustc_llvm's, with llvm.use-libcxx) finds the same libc++.a (got '$(args clang++)')"
+for m in --version -dumpversion -dumpmachine -print-file-name=libstdc++.a -print-search-dirs; do
+  "$LINUX_HOST_CXX" "$m"
+  [ "$(args clang++)" = "$d4 $inc $m" ] || fail "c++ $m links nothing, so it gets no link flags or libraries (got '$(args clang++)')"
+done
+SDKROOT=/sdk109 "$LINUX_HOST_CC" -c x.c -o x.o
+SDKROOT=/sdk109 "$LINUX_HOST_CXX" y.o -o y
+[ "$(cat "$t/clang.sdkroot")" = unset ] && [ "$(cat "$t/clang++.sdkroot")" = unset ] \
+  || fail "a Linux build exports SDKROOT for rustc's Apple links, and the build triple's cc and c++ must not see the 10.9 SDK (got '$(cat "$t/clang.sdkroot")' '$(cat "$t/clang++.sdkroot")')"
 
 : > "$t/fetch.fails"
 if ( PATH="$t/linux:$PATH"; linux_host_compilers "$t/c" ) 2>/dev/null; then
