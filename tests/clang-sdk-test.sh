@@ -36,4 +36,13 @@ echo rust > "$t/recaulk.a"; install_recaulk_into_clang "$t/recaulk.a" "$c"; popu
   || fail "case 5 the build writes Recaulk and the SDK into its copy, never into an installed clang22 or the shared cache"
 c2="$(WORK="$t/work" CLANG_PIN_FILE="$t/pin/version" clang_work_copy "$t/fetched")"
 [ "$c2" = "$c" ] && [ "$(cat "$c/lib/librecaulk.a")" = rust ] || fail "case 6 a complete copy is reused, not copied again"
+mkdir -p "$t/work/clang22-22.1.8-mavericks.98.part/bin" "$t/work/stage0-onbox" "$t/work/recaulk"
+echo 22.1.8-mavericks.100 > "$t/pin/version"
+c3="$(WORK="$t/work" CLANG_PIN_FILE="$t/pin/version" clang_work_copy "$t/fetched")"
+[ "$c3" = "$t/work/clang22-22.1.8-mavericks.100" ] && [ -x "$c3/bin/clang" ] || fail "case 7 a new pin gets a new copy"
+[ ! -e "$c" ] && [ ! -e "$t/work/clang22-22.1.8-mavericks.98.part" ] \
+  || fail "case 7 a new copy removes the other pins' copies in \$WORK, 2.1 GB each, and any left half-made"
+[ -d "$t/work/stage0-onbox" ] && [ -d "$t/work/recaulk" ] || fail "case 7 only clang22-* copies are pruned"
+c4="$(WORK="$t/work" CLANG_PIN_FILE="$t/pin/version" clang_work_copy "$t/fetched")"
+[ "$c4" = "$c3" ] && [ -d "$c3" ] || fail "case 8 reusing a copy keeps it"
 echo "OK clang-sdk-test"
