@@ -7,6 +7,9 @@ write_bootstrap_toml() {
   _py="$(command -v python3 || echo /opt/pkg/bin/python3)"
   if [ "$_host" = "$TARGET_TRIPLE" ]; then _targets="\"$TARGET_TRIPLE\""; else _targets="\"$_host\", \"$TARGET_TRIPLE\""; fi
   case "$_build$_host" in *aarch64*) _llvm_targets="AArch64;X86" ;; *) _llvm_targets="X86" ;; esac
+  # platform: bootstrap runs ccache as CMake's compiler launcher, and ccache cannot use LLVM 22's
+  #           precompiled headers (built without -fno-pch-timestamp), so on Linux CI nothing caches
+  _bcx=""; [ "$_build" != x86_64-unknown-linux-gnu ] || _bcx=', CMAKE_DISABLE_PRECOMPILE_HEADERS = "ON"'
   if [ "$_build" = x86_64-unknown-linux-gnu ] && { [ -z "${LINUX_HOST_CC:-}" ] || [ -z "${LINUX_HOST_CXX:-}" ]; }; then
     echo "FATAL: a Linux build triple compiles with LINUX_HOST_CC and LINUX_HOST_CXX (linux_host_compilers), and one is unset" >&2
     return 1
@@ -43,6 +46,9 @@ EOF
     # platform: built on 10.9 itself, bootstrap's own build scripts compile and link at the 10.9 floor,
     #           below rustc's 10.12; rustc and clang++ warn about it, and bootstrap denies warnings
     if [ "$_build" = "$TARGET_TRIPLE" ]; then printf 'deny-warnings = false\n'; fi
+    # platform: the source tarball's dist profile compresses debuginfo with zlib, which bootstrap
+    #           applies to non-Apple targets only, and clang22's ld.lld has no zlib
+    if [ "$_build" = x86_64-unknown-linux-gnu ]; then printf 'compress-debuginfo = "off"\n'; fi
     cat <<EOF
 channel = "stable"
 
@@ -51,7 +57,7 @@ download-ci-llvm = false
 ninja = true
 targets = "$_llvm_targets"
 libzstd = false
-build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
+build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF"$_bcx }
 EOF
     # platform: rustc_llvm links a Linux LLVM with -lstdc++, the runner's, unless use-libcxx; the build
     #           triple's c++ then resolves -lc++ to the host libc++ it compiled LLVM against

@@ -135,6 +135,16 @@ for v in lnative lcross ltar; do
     || fail "$v: [llvm] use-libcxx = true, or rustc_llvm links the build triple's LLVM with the runner's libstdc++"
 done
 for v in cross xhost onbox pinned; do hasnt "$v" 'use-libcxx'; done
+for v in lnative lcross ltar; do
+  sed -n '/^\[rust\]$/,/^\[/p' "$t/$v/bootstrap.toml" | grep -qx 'compress-debuginfo = "off"' \
+    || fail "$v: [rust] compress-debuginfo = \"off\" (the source tarball's dist profile says zlib, and clang22's ld.lld has no zlib)"
+done
+for v in cross xhost onbox pinned; do hasnt "$v" 'compress-debuginfo'; done
+for v in lnative lcross ltar; do
+  grep '^build-config = ' "$t/$v/bootstrap.toml" | grep -qF ', CMAKE_DISABLE_PRECOMPILE_HEADERS = "ON" }' \
+    || fail "$v: LLVM's build-config disables precompiled headers (ccache, which bootstrap runs as the compiler launcher, refuses LLVM 22's PCH: 93% uncacheable)"
+done
+for v in cross xhost onbox pinned; do hasnt "$v" 'CMAKE_DISABLE_PRECOMPILE_HEADERS'; done
 sdkvars() { printf '%s|%s|%s|%s' "${SDKROOT:-}" "${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:-}" \
   "${CFLAGS_x86_64_apple_darwin:-}" "${CXXFLAGS_x86_64_apple_darwin:-}"; }
 got="$( unset SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
