@@ -21,4 +21,13 @@ grep -qx "recaulk=20261012.1" "$t/s.stamp" || fail "the stamp must record the Re
 grep -qx "make=4.4.1-mavericks.1" "$t/s.stamp" || fail "the stamp must record the make pin"
 ( MAKE_VERSION=4.4.1-mavericks.2; ! stage_is_current "$t/s.stamp" native ) \
   || fail "bumping make must invalidate the stage (it builds cargo's vendored OpenSSL)"
+mkdir -p "$t/nosha"
+for b in awk tr python3; do ln -s "$(command -v "$b")" "$t/nosha/$b"; done
+cat > "$t/nosha/sha256sum" <<'EOF'
+#!/bin/sh
+exec python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest() + "  " + sys.argv[1])' "$1"
+EOF
+chmod +x "$t/nosha/sha256sum"
+( PATH="$t/nosha"; stage_stamp native ) > "$t/n.stamp" 2> "$t/n.err" || { cat "$t/n.err"; fail "stage_stamp must work with sha256sum where there is no shasum"; }
+cmp -s "$t/s.stamp" "$t/n.stamp" || { diff "$t/s.stamp" "$t/n.stamp" || :; fail "sha256sum and shasum -a 256 must give the same stamp"; }
 echo "OK stamp-test"

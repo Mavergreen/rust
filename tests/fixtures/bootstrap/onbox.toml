@@ -1,0 +1,41 @@
+[build]
+build = "x86_64-apple-darwin"
+host = ["x86_64-apple-darwin"]
+target = ["x86_64-apple-darwin"]
+rustc = "/s0/bin/rustc"
+cargo = "/s0/bin/cargo"
+local-rebuild = true
+python = "@PYTHON@"
+docs = false
+extended = true
+tools = ["cargo", "rustdoc", "clippy", "rustfmt"]
+submodules = false
+vendor = true
+sanitizers = false
+profiler = false
+
+[build.tool.cargo]
+features = ["vendored-openssl", "curl/force-system-lib-on-osx"]
+
+[install]
+prefix = "/usr/local/mavergreen/rust"
+sysconfdir = "etc"
+
+[rust]
+deny-warnings = false
+channel = "stable"
+
+[llvm]
+download-ci-llvm = false
+ninja = true
+targets = "X86"
+libzstd = false
+build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
+
+[target.x86_64-apple-darwin]
+cc = "/c/bin/clang"
+cxx = "/c/bin/clang++"
+ar = "/c/bin/llvm-ar"
+ranlib = "/c/bin/llvm-ranlib"
+linker = "/c/bin/clang++"
+rustflags = ["-Clink-arg=-mmacosx-version-min=10.9"]
