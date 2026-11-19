@@ -89,7 +89,7 @@ jobs:
         if: always()
         run: |
           [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
-          ccache -s || true
+          ccache -sv || true
           du -sh "$HOME/.cache/ccache" 2>/dev/null || true
           [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
           du -sh "$MAVERICKS_WORK" 2>/dev/null || true
