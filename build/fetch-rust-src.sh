@@ -1,5 +1,5 @@
 #!/bin/sh
-# platform: macOS-only -- shasum
+# platform: host-agnostic
 #   usage: fetch-rust-src.sh     prints the extracted source tree (holds x.py); verified
 #          against static.rust-lang.org's own .sha256 for the pinned version
 set -eu

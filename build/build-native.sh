@@ -1,8 +1,9 @@
 #!/bin/sh
-# platform: macOS-only -- x.py drives Apple toolchains; relocate_prefix rewrites with clang-22's llvm tools
+# platform: host-agnostic
 #   usage: build-native.sh
 #          Stages the native (x86_64, runs on 10.9) toolchain at $NATIVE_STAGE_ROOT$NATIVE_PREFIX.
-#          On a modern Mac it cross-hosts (build=aarch64, host=x86_64); on 10.9 it builds natively.
+#          On Linux it cross-hosts (build=x86_64-unknown-linux-gnu, host=x86_64-apple-darwin), on an
+#          Apple Silicon Mac too (build=aarch64); on 10.9 it builds natively.
 # spec: docs/superpowers/specs/2026-09-25-rust-plan3a-conformance-design.md "Build recipe"
 set -eu
 RUST_VARIANT=native; export RUST_VARIANT
@@ -16,14 +17,18 @@ if staged_complete "$STAGE" && stage_is_current "$WORK/staged.stamp" native; the
 rm -f "$WORK/staged.stamp"; rm -rf "$NATIVE_STAGE_ROOT"
 
 case "$MODE" in
-  cross)  [ "$(uname -m)" = arm64 ] || { echo "FATAL: cross-hosting needs an arm64 build machine (got $(uname -m))" >&2; exit 1; }
-          BUILD_TRIPLE=aarch64-apple-darwin ;;
+  cross)  if [ "$(uname -s)" = Linux ]; then
+            BUILD_TRIPLE=x86_64-unknown-linux-gnu
+          else
+            [ "$(uname -m)" = arm64 ] || { echo "FATAL: cross-hosting from a Mac needs an arm64 build machine (got $(uname -m))" >&2; exit 1; }
+            BUILD_TRIPLE=aarch64-apple-darwin
+          fi ;;
   native) BUILD_TRIPLE=x86_64-apple-darwin ;;
   *) echo "FATAL: mavericks_mode.sh said '$MODE'" >&2; exit 1 ;;
 esac
 mkdir -p "$WORK"
 C22="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR")"
-CLANGDIR="$(clang_work_copy "$C22")"; macho_tools
+CLANGDIR="$(clang_work_copy "$C22")"; export CLANGDIR; macho_tools
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 RECAULK_A="$(fetch_recaulk)"
 MAKE_BIN="$(fetch_make)"
@@ -31,10 +36,14 @@ SRC="$(sh "$HERE/fetch-rust-src.sh")"
 install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
 STAGE0=""
-if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0.sh" "$CLANGDIR" "$RECAULK_A")"; fi
+if [ "$MODE" = native ] || [ "$BUILD_TRIPLE" = x86_64-unknown-linux-gnu ]; then
+  STAGE0="$(sh "$HERE/fetch-stage0.sh" "$CLANGDIR" "$RECAULK_A")"
+fi
+linux_host_compilers "$CLANGDIR"
 write_bootstrap_toml "$SRC" "$NATIVE_PREFIX" "$BUILD_TRIPLE" "$TARGET_TRIPLE" "$CLANGDIR" $STAGE0
 write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK" "$CLANGDIR"
 pin_onbox_tools "$BUILD_TRIPLE" "$CLANGDIR" "$SDK"
+pin_linux_build_sdk "$BUILD_TRIPLE" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 # platform: the cmake crate (which bootstrap drives LLVM through) reads
