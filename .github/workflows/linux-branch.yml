@@ -27,6 +27,10 @@ jobs:
   build-native:
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    # platform: only an explicit bash shell runs with pipefail, and the build pipes into tee
+    defaults:
+      run:
+        shell: bash
     env:
       MAVERICKS_USE_CCACHE: "1"
       CCACHE_COMPILERCHECK: "%compiler% --version"
