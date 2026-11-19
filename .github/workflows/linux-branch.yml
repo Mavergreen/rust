@@ -23,3 +23,91 @@ jobs:
           sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh"
       - name: Tests
         run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
+
+  build-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      MAVERICKS_USE_CCACHE: "1"
+      CCACHE_COMPILERCHECK: "%compiler% --version"
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Free disk
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D11 (shipyard) -- the work tree goes on the runner's largest free volume
+      - name: Work on the largest free volume
+        run: |
+          best=""; bestk=0
+          for v in / /mnt; do
+            [ -d "$v" ] || continue
+            k="$(df -Pk "$v" | awk 'NR == 2 { print $4 }')"
+            if [ "$k" -gt "$bestk" ]; then best="$v"; bestk="$k"; fi
+          done
+          w="${best%/}/mavergreen-rust"
+          sudo mkdir -p "$w" && sudo chown "$(id -u):$(id -g)" "$w"
+          echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "work on $w ($((bestk / 1048576)) GB free)"
+      - name: Ensure ccache and ninja
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ccache ninja-build
+          cmake --version | head -1; ninja --version; make --version | head -1; ccache --version | head -1
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
+          restore-keys: ccache-native-linux-
+      - name: Build
+        id: build
+        run: |
+          ccache -z
+          date -u +%s > "$RUNNER_TEMP/start"
+          ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
+          sh build/build-native.sh 2>&1 | tee "$RUNNER_TEMP/build-native.log"
+      - name: Save ccache even when the build fails
+        if: ${{ always() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Wall time, ccache and disk
+        if: always()
+        run: |
+          [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+          ccache -s || true
+          du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+          du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md "Review Focus" (shipyard) -- rustc's Apple-target links get their SDK and linker from us
+      - name: The build ran no xcrun, /usr/bin/clang or pkgutil
+        run: |
+          if grep -nE 'xcrun|/usr/bin/clang|pkgutil' "$RUNNER_TEMP/build-native.log"; then
+            echo "::error::the build log names xcrun, /usr/bin/clang or pkgutil"; exit 1
+          fi
+          echo "no xcrun, /usr/bin/clang or pkgutil in $(wc -l < "$RUNNER_TEMP/build-native.log") log lines"
+      - name: Tests, with the stage
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
+      - name: Pack the stage and the logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$RUNNER_TEMP/build-native.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          w="$MAVERICKS_WORK/work-native"
+          [ ! -d "$w/stage" ] || tar -czf "$RUNNER_TEMP/out/stage-native.tar.gz" -C "$w/stage" .
+          find "$w" -path '*/CMakeFiles/CMakeConfigureLog.yaml' -o -path '*/CMakeFiles/CMakeError.log' -o -name bootstrap.toml 2>/dev/null \
+            | tar -czf "$RUNNER_TEMP/out/build-logs.tar.gz" -T - 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: build-native-linux
+          path: ${{ runner.temp }}/out
