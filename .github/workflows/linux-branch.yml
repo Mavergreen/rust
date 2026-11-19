@@ -1,0 +1,25 @@
+name: linux-branch
+
+on:
+  push:
+    branches: [linux]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      # platform: the tests fetch clang22's Linux archive and the 10.9 SDK in parallel; one fetch first
+      #           keeps them from downloading the same archive at once
+      - name: Fetch clang22 and the 10.9 SDK
+        run: |
+          sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" components/clang22
+          sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh"
+      - name: Tests
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
