@@ -61,11 +61,12 @@ grep -qx 'set(LD64_EXECUTABLE "/c/bin/ld64.lld")' "$t/tc.cmake" \
   [ -z "${SDKROOT:-}${CC:-}${CXX:-}" ] ) \
   || fail "cross-hosted: the arm64 build tools must not link against the 10.9 SDK or compile with clang-22"
 printf '#!/bin/sh\n' > "$t/fake-shipyard-cmake"; chmod +x "$t/fake-shipyard-cmake"
-d="$(SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/cmbin")"
+mkdir -p "$t/dbin"; printf '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n' > "$t/dbin/uname"; chmod +x "$t/dbin/uname"
+d="$(PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/cmbin")"
 [ "$d" = "$t/cmbin" ] || fail "cmake_shim_dir must print its dir (got '$d')"
 [ "$(readlink "$t/cmbin/cmake")" = "$t/fake-shipyard-cmake" ] \
   || fail "cmake_shim_dir: bootstrap 1.95 has no [build] cmake key and runs 'cmake' from PATH, so the dir must hold cmake -> shipyard-cmake"
-! SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
+! ( PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" ) 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
 mkdir -p "$t/pinned"
 ARM64_LINKER=/w/cc-arm64-pinned write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c
 grep -A1 -x '\[target.aarch64-apple-darwin\]' "$t/pinned/bootstrap.toml" | grep -qx 'linker = "/w/cc-arm64-pinned"' \
