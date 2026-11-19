@@ -28,6 +28,7 @@ build-host-python=Python 3.12.3
 WANT
 cmp -s "$t/want" "$t/info" || { diff "$t/want" "$t/info" || :; fail "record_build_tools must append the build host's tools, one key per line"; }
 rm "$t/stub/ninja"; : > "$t/info2"
-PATH="$t/stub:/usr/bin:/bin" record_build_tools "$t/info2"
+mkdir -p "$t/tools"; for c in sed cat; do ln -s "$(command -v $c)" "$t/tools/$c"; done
+( PATH="$t/stub:$t/tools"; record_build_tools "$t/info2" )
 grep -qx 'build-host-ninja=' "$t/info2" || fail "a tool the host lacks is recorded empty, not as a shell error (got '$(grep ninja "$t/info2")')"
 echo "OK build-tools-test"
