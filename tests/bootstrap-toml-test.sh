@@ -129,6 +129,35 @@ if ( unset LINUX_HOST_CC LINUX_HOST_CXX; write_bootstrap_toml "$t/lnocc" /p $L x
   fail "a Linux build triple with no LINUX_HOST_CC/LINUX_HOST_CXX must fail, not write an empty compiler"
 fi
 grep -q LINUX_HOST_CC "$t/lnocc.err" || fail "the failure must name LINUX_HOST_CC"
+for v in lnative lcross ltar; do
+  sed -n '/^\[llvm\]$/,/^\[/p' "$t/$v/bootstrap.toml" | grep -qx 'use-libcxx = true' \
+    || fail "$v: [llvm] use-libcxx = true, or rustc_llvm links the build triple's LLVM with the runner's libstdc++"
+done
+for v in cross xhost onbox pinned; do hasnt "$v" 'use-libcxx'; done
+sdkvars() { printf '%s|%s|%s|%s' "${SDKROOT:-}" "${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:-}" \
+  "${CFLAGS_x86_64_apple_darwin:-}" "${CXXFLAGS_x86_64_apple_darwin:-}"; }
+got="$( unset SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
+  pin_linux_build_sdk $L /sdk109 && sdkvars )"
+[ "$got" = "/sdk109|-C link-arg=-isysroot -C link-arg=/sdk109|-isysroot /sdk109 -mmacosx-version-min=10.9|-isysroot /sdk109 -mmacosx-version-min=10.9" ] \
+  || fail "a Linux build: rustc's Apple links read SDKROOT (else they run xcrun), and the target's links and compiles name the 10.9 SDK (got '$got')"
+( unset SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
+  env | grep -q '^SDKROOT=' && exit 1
+  pin_linux_build_sdk $L /sdk109; env | grep -q '^CXXFLAGS_x86_64_apple_darwin=' ) \
+  || fail "pin_linux_build_sdk must export what it sets"
+for b in aarch64-apple-darwin x86_64-apple-darwin; do
+  got="$( unset SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
+    pin_linux_build_sdk $b /sdk109 && sdkvars )"
+  [ "$got" = '|||' ] || fail "build $b: pin_linux_build_sdk is for a Linux build triple only (got '$got')"
+done
+! pin_linux_build_sdk $L '/s d k' 2>/dev/null || fail "an SDK path with a space must be refused: cargo splits target rustflags on spaces"
+mkdir -p "$t/ubin" "$t/rcm"
+printf '#!/bin/sh\ncase "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac\n' > "$t/ubin/uname"
+printf '#!/bin/sh\n' > "$t/rcm/cmake"; chmod +x "$t/ubin/uname" "$t/rcm/cmake"
+d="$(PATH="$t/ubin:$t/rcm:$PATH" SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_dir "$t/lcmbin")"
+[ "$d" = "$t/lcmbin" ] && [ "$(readlink "$t/lcmbin/cmake")" = "$t/rcm/cmake" ] \
+  || fail "on Linux cmake_shim_dir links the runner's cmake (shipyard-cmake is a Mac pkg; got '$(readlink "$t/lcmbin/cmake")')"
+mkdir -p "$t/tools"; ln -s "$(command -v mkdir)" "$(command -v ln)" "$t/tools/"
+! ( PATH="$t/ubin:$t/tools"; cmake_shim_dir "$t/lcmbin2" ) 2>/dev/null || fail "on Linux cmake_shim_dir must refuse a PATH with no cmake"
 ( unset SDKROOT CC CXX; pin_onbox_tools $L /c /sdk109
   [ -z "${SDKROOT:-}${CC:-}${CXX:-}" ] ) \
   || fail "a Linux build: the cc crate must not hand the 10.9 SDK or clang22's clang.cfg to x86_64-unknown-linux-gnu build scripts"

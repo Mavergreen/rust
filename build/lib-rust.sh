@@ -52,6 +52,11 @@ ninja = true
 targets = "$_llvm_targets"
 libzstd = false
 build-config = { CMAKE_IGNORE_PREFIX_PATH = "/opt/pkg;/opt/homebrew;/usr/local;/opt/local;/sw", LLVM_ENABLE_ZSTD = "OFF", LLVM_ENABLE_LIBXML2 = "OFF", LLVM_ENABLE_LIBEDIT = "OFF" }
+EOF
+    # platform: rustc_llvm links a Linux LLVM with -lstdc++, the runner's, unless use-libcxx; the build
+    #           triple's c++ then resolves -lc++ to the host libc++ it compiled LLVM against
+    if [ "$_build" = x86_64-unknown-linux-gnu ]; then printf 'use-libcxx = true\n'; fi
+    cat <<EOF
 
 [target.$TARGET_TRIPLE]
 cc = "$_clang/bin/clang"
@@ -80,10 +85,14 @@ EOF
 # platform: clang targets core2 for x86_64 macOS and plain x86-64 for Linux; the build triple compiles for
 #           core2, so no code path keys on the build machine's CPU (nodejs-24 R3)
 # platform: a flag only a link reads draws -Wunused-command-line-argument from a compile, and CMake's
-#           flag checks read that warning as a missing flag
+#           flag checks read that warning as a missing flag; a query (--version, -print-*) links nothing
+# platform: a Linux build exports SDKROOT for rustc's Apple links (pin_linux_build_sdk), and the build
+#           triple's C and C++ must not see the 10.9 SDK
+# platform: with llvm.use-libcxx rustc_llvm links -lc++, which must find the host libc++.a
 _write_linux_host_compiler() {
   {
-    printf '#!/bin/sh\nlink=yes\nfor a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only) link=no ;; esac; done\n'
+    printf '#!/bin/sh\nunset SDKROOT\nlink=yes\n'
+    printf 'for a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only|--version|-dumpversion|-dumpmachine|-print-*) link=no ;; esac; done\n'
     printf '[ "$link" = no ] || exec %s %s -fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc %s "$@" %s\n' "$2" "$3" "$4" "$5"
     printf 'exec %s %s "$@"\n' "$2" "$3"
   } > "$1"
@@ -101,14 +110,19 @@ linux_host_compilers() {
   mkdir -p "$WORK/linux-host"
   _write_linux_host_compiler "$WORK/linux-host/cc" "'$1/bin/clang'" "$_d4" "" ""
   _write_linux_host_compiler "$WORK/linux-host/c++" "'$1/bin/clang++'" "$_d4 -nostdinc++ -isystem '$_lcxx/include/c++/v1'" \
-    -nostdlib++ "'$_lcxx/lib/libc++.a' '$_lcxx/lib/libc++abi.a' -lpthread"
+    "-nostdlib++ -L'$_lcxx/lib'" "'$_lcxx/lib/libc++.a' '$_lcxx/lib/libc++abi.a' -lpthread"
   LINUX_HOST_CC="$WORK/linux-host/cc"; LINUX_HOST_CXX="$WORK/linux-host/c++"; export LINUX_HOST_CC LINUX_HOST_CXX
 }
 
 # spec: docs/superpowers/handoffs/plan3a-ledger.md, the Task 3 cmake ruling -- bootstrap 1.95
 #       has no [build] cmake key; its sanity check and the cmake crate run `cmake` from PATH ($CMAKE)
+# platform: shipyard-cmake is a Mac pkg; on Linux the runner's cmake configures, and build-info records it
 cmake_shim_dir() {
-  _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
+  if [ "$(uname -s)" = Linux ]; then
+    _cm="$(command -v cmake)" || { echo "FATAL: no cmake on PATH" >&2; return 1; }
+  else
+    _cm="${SHIPYARD_CMAKE:-$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)}"
+  fi
   [ -x "$_cm" ] || { echo "FATAL: no shipyard-cmake at $_cm" >&2; return 1; }
   mkdir -p "$1"; ln -sfn "$_cm" "$1/cmake"; printf '%s\n' "$1"
 }
@@ -131,6 +145,19 @@ write_x86_cmake_toolchain() {
 pin_onbox_tools() {
   [ "$1" = "$TARGET_TRIPLE" ] || return 0
   SDKROOT="$3"; CC="$2/bin/clang"; CXX="$2/bin/clang++"; export SDKROOT CC CXX
+}
+
+# platform: with no SDKROOT rustc runs xcrun for every Apple link's SDK, and a Linux host has no xcrun;
+#           rustc reads SDKROOT only for an Apple target, and the build triple's cc and c++ drop it
+# platform: cargo splits target rustflags on spaces
+pin_linux_build_sdk() {
+  [ "$1" = x86_64-unknown-linux-gnu ] || return 0
+  case "$2" in *" "*) echo "FATAL: the SDK path '$2' has a space, which cargo would split in target rustflags" >&2; return 1 ;; esac
+  SDKROOT="$2"
+  CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$2"
+  CFLAGS_x86_64_apple_darwin="-isysroot $2 -mmacosx-version-min=$MACOS_MIN"
+  CXXFLAGS_x86_64_apple_darwin="$CFLAGS_x86_64_apple_darwin"
+  export SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
 }
 
 # platform: clang-22's clang.cfg looks for <bin>/../SDKs/MacOSX10.9.sdk; its pkg ships SDKs as a link
