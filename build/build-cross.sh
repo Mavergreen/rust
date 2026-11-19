@@ -19,7 +19,8 @@ fi
 rm -f "$WORK/staged.stamp"; rm -rf "$STAGE_ROOT"
 
 echo "== fetch inputs =="
-CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
+C22="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR")"
+CLANGDIR="$(clang_work_copy "$C22")"; macho_tools
 RECAULK_A="$(fetch_recaulk)"
 MAKE_BIN="$(fetch_make)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"

@@ -38,7 +38,15 @@ echo "$out" | grep -qx "FULL=$U-mavericks.4" || { echo "FAIL local FULL: $out"; 
 ( RUST_VARIANT=native; . "$ROOT/build/versions.sh"
   case "$WORK" in */work-native) : ;; *) echo "FAIL WORK=$WORK for RUST_VARIANT=native"; exit 1 ;; esac
 ) || exit 1
-grep -q 'fetch_product_pkg\.sh' "$ROOT/build/fetch-clang.sh" || { echo "FAIL fetch-clang.sh takes clang-22's pkg through shipyard's fetch_product_pkg.sh, which retries and verifies it against the release's SHA256SUMS"; exit 1; }
+[ ! -e "$ROOT/build/fetch-clang.sh" ] || { echo "FAIL build/fetch-clang.sh is retired: shipyard's fetch_clang22.sh fetches clang22 for every host"; exit 1; }
+for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh; do
+  grep -qF 'sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR"' "$f" \
+    || { echo "FAIL ${f#"$ROOT"/} takes clang22 from shipyard's fetch_clang22.sh, which verifies it for this host (the native pkg on 10.9)"; exit 1; }
+done
+( REPO_ROOT="$ROOT"; . "$ROOT/build/versions.sh"
+  [ "$CLANG_PIN_DIR" = "$ROOT/components/clang22" ] || { echo "FAIL CLANG_PIN_DIR=$CLANG_PIN_DIR, not components/clang22"; exit 1; }
+  [ "$CLANG_PIN_FILE" = "$CLANG_PIN_DIR/version" ] || { echo "FAIL CLANG_PIN_FILE=$CLANG_PIN_FILE, not \$CLANG_PIN_DIR/version"; exit 1; }
+) || exit 1
 for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh; do
   grep -q 'PATH="$MAKE_BIN:' "$f" || { echo "FAIL ${f#"$ROOT"/} puts the family make first on x.py's PATH: openssl-src runs a bare make, which on 10.9 is a Command Line Tools stub"; exit 1; }
 done

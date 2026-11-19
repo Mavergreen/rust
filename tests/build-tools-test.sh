@@ -1,0 +1,33 @@
+#!/bin/sh
+# platform: host-agnostic
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
+TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"; export TARGET_TRIPLE MACOS_MIN REPO_ROOT
+t="$(mktemp -d "${TMPDIR:-/tmp}/build-tools.XXXXXX")"; trap 'rm -rf "$t"' EXIT
+. "$ROOT/build/lib-rust.sh"
+fail() { echo "FAIL $1"; exit 1; }
+command -v record_build_tools >/dev/null || fail "lib-rust.sh has no record_build_tools"
+mkdir -p "$t/stub"
+stub() { printf '#!/bin/sh\n%s\n' "$2" > "$t/stub/$1"; chmod +x "$t/stub/$1"; }
+stub uname 'case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo "Linux 6.8.0" ;; esac'
+stub cmake 'echo "cmake version 3.28.3"; echo; echo "CMake suite maintained by Kitware"'
+stub ninja 'echo 1.11.1'
+stub make 'echo "GNU Make 4.3"; echo "Built for x86_64-pc-linux-gnu"'
+stub python3 'echo "Python 3.12.3"'
+stub getconf '[ "$1" = GNU_LIBC_VERSION ] && echo "glibc 2.39"'
+echo "keep=me" > "$t/info"
+PATH="$t/stub:$PATH" record_build_tools "$t/info"
+cat > "$t/want" <<'WANT'
+keep=me
+build-host=x86_64-unknown-linux-gnu
+build-host-cmake=cmake version 3.28.3
+build-host-ninja=1.11.1
+build-host-make=GNU Make 4.3
+build-host-libc=glibc 2.39
+build-host-python=Python 3.12.3
+WANT
+cmp -s "$t/want" "$t/info" || { diff "$t/want" "$t/info" || :; fail "record_build_tools must append the build host's tools, one key per line"; }
+rm "$t/stub/ninja"; : > "$t/info2"
+PATH="$t/stub:/usr/bin:/bin" record_build_tools "$t/info2"
+grep -qx 'build-host-ninja=' "$t/info2" || fail "a tool the host lacks is recorded empty, not as a shell error (got '$(grep ninja "$t/info2")')"
+echo "OK build-tools-test"
