@@ -19,7 +19,7 @@ printf '#!/bin/sh\necho /Library/Developer/CommandLineTools\n' > "$t/clt/xcode-s
 chmod +x "$t/noclt/xcode-select" "$t/clt/xcode-select"
 
 run() {  # run PATHDIR SNIPPET -> the snippet's output, with fresh $w and counters
-  w="$t/w.$$.$(date +%s)$RANDOM"; mkdir -p "$w"
+  w="$(mktemp -d "$t/w.XXXXXX")"
   ( PATH="$1:$PATH"; bad=0; skips=0; V=1.99.0-mavericks.2; C22="$t/c22"; . "$funcs"; eval "$2" ) 2>&1
 }
 
