@@ -152,6 +152,8 @@ install_recaulk_into_clang() { cp -f "$1" "$2/lib/librecaulk.a"; }
 #           the linker driver; the last -mmacosx-version-min on the line wins
 # platform: -force_load takes every member of librecaulk.a, its C++ catch rules among them, and those
 #           call 10.9's /usr/lib/libc++abi.dylib
+# platform: -force_load takes Recaulk's CGColorCreateSRGB back-fill too, which calls CoreGraphics, a
+#           subframework of ApplicationServices on 10.9
 wrap_linking_tool() {
   _p="$1"; _tool="$2"; _mode="$3"
   [ "$(head -c2 "$_p/bin/$_tool" 2>/dev/null)" = '#!' ] && return 0
@@ -263,6 +265,7 @@ if [ "\$wants" = 1 ]; then
       -C link-arg=-framework -C link-arg=CoreFoundation \\
       -C link-arg=-framework -C link-arg=Security \\
       -C link-arg=-framework -C link-arg=CoreServices \\
+      -C link-arg=-framework -C link-arg=ApplicationServices \\
       -C link-arg=-lobjc -C link-arg=-lc++abi "\$@"
   fi
   [ "\$first" = 0 ] || set -- "\$first" "\$@"
