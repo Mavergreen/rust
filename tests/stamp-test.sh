@@ -3,7 +3,7 @@
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"
-RUST_VERSION=1.95.0; RECAULK_VERSION=20261012.1; MAKE_VERSION=4.4.1-mavericks.1; CLANG_PIN_FILE="$ROOT/components/clang/version"
+RUST_VERSION=1.95.0; RECAULK_VERSION=20261012.1; MAKE_VERSION=4.4.1-mavericks.1; CLANG_PIN_FILE="$ROOT/components/clang22/version"
 export TARGET_TRIPLE MACOS_MIN REPO_ROOT RUST_VERSION RECAULK_VERSION MAKE_VERSION CLANG_PIN_FILE
 . "$ROOT/build/lib-rust.sh"
 t="$(mktemp -d "${TMPDIR:-/tmp}/stamp.XXXXXX")"; trap 'rm -rf "$t"' EXIT

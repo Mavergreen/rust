@@ -7,7 +7,7 @@ built with.
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ✅ `github-releases` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
-| clang-22 (cross pkg for modern hosts, native pkg on 10.9) | `components/clang/version` | ✅ `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning | repackage → `-mavericks.(N+1)` |
+| clang-22 (shipyard's `fetch_clang22.sh`: the cross pkg on a modern Mac, the native pkg on 10.9, the Linux archive on Linux) | `components/clang22/version`, plus the Linux archive's digest in `components/clang22/linux-sha256` | ✅ `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning; the pins bot (`.github/workflows/pins-bot.yml`) verifies the new release's Linux archive against its `SHA256SUMS` and writes `linux-sha256` on Renovate's branch | repackage → `-mavericks.(N+1)` |
 | Recaulk (prebuilt `librecaulk.a`, the 10.9 back-fills) | `components/recaulk/version` | ✅ shipyard preset manager → `github-releases` on `Mavergreen/recaulk` | repackage |
 | GNU make (builds cargo's vendored OpenSSL) | `components/make/version` | ✅ `github-releases` on `Mavergreen/make`, `-mavericks.N` versioning | repackage |
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
@@ -88,13 +88,13 @@ lines users pin independently (unlike LLVM majors or Go minors). So a single bar
 
 Verified against `static.rust-lang.org`'s published `.sha256` for the pinned version (upstream
 publishes checksums → no hand-maintained hash; a Renovate bump only moves the ref). Fail closed if the
-`.sha256` is absent. The on-10.9 stage0 (the official x86_64 prebuilt of the same version) is verified
-the same way.
+`.sha256` is absent. The stage0 (the official prebuilt of the same version: x86_64-apple-darwin on
+10.9, x86_64-unknown-linux-gnu on Linux) is verified the same way.
 
 ## Declared state
 
 - upstream: UPSTREAM_VERSION
-- clang: components/clang/version
+- clang: components/clang22/version
 - recaulk: components/recaulk/version
 - make: components/make/version
 

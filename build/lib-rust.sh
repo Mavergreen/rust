@@ -117,10 +117,30 @@ fetch_recaulk() {
 
 # platform: cargo's vendored OpenSSL builds with a bare `make`, which on 10.9 is a Command Line Tools
 #           stub; the family's GNU make goes first on x.py's PATH
+# platform: a Linux runner's own make is GNU make 4; the family's make is a Mac pkg
 fetch_make() {
+  if [ "$(uname -s)" = Linux ]; then
+    _mk="$(command -v make)" || { echo "FATAL: no make on PATH" >&2; return 1; }
+    case "$("$_mk" --version 2>/dev/null | sed -n 1p)" in
+      "GNU Make 4."*) dirname "$_mk"; return 0 ;;
+      *) echo "FATAL: $_mk is not GNU Make 4 (cargo's vendored OpenSSL needs it)" >&2; return 1 ;;
+    esac
+  fi
   _mk="$(sh "$SHIPYARD_SCRIPTS/fetch_product_pkg.sh" make "$MAKE_VERSION" "$WORK/make")" || return 1
   [ -x "$_mk/bin/make" ] || { echo "FATAL: make $MAKE_VERSION has no bin/make" >&2; return 1; }
   printf '%s\n' "$_mk/bin"
+}
+
+# platform: fetch_clang22.sh can answer with an installed clang22 or a cache other products share, and
+#           the build writes rust's Recaulk and the 10.9 SDK link into its clang22, so it works on a copy
+#           in $WORK, made once per pin
+clang_work_copy() {
+  _cw="$WORK/clang22-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")"
+  if [ ! -x "$_cw/bin/clang" ]; then
+    rm -rf "$_cw" "$_cw.part"; mkdir -p "$WORK"
+    cp -pR "$1" "$_cw.part" && mv "$_cw.part" "$_cw" || { rm -rf "$_cw.part"; echo "FATAL: could not copy $1 to $_cw" >&2; return 1; }
+  fi
+  printf '%s\n' "$_cw"
 }
 
 # platform: clang-22's clang.cfg links <CFGDIR>/../lib/librecaulk.a into everything it links, rustc and
@@ -300,7 +320,7 @@ write_stage0_wrappers() {
 #           MACHO_CC is a clang-22 only where its 10.9 SDK is in place
 macho_tools() {
   _pin="$(tr -d ' \t\n' < "${CLANG_PIN_FILE:-/dev/null}" 2>/dev/null)" || _pin=""
-  for _d in ${CLANGDIR:+"$CLANGDIR/bin"} ${_pin:+"${WORK_ROOT:-/nonexistent}"/work-*/clang-*-"$_pin"/bin} \
+  for _d in ${CLANGDIR:+"$CLANGDIR/bin"} ${_pin:+"${WORK_ROOT:-/nonexistent}"/work-*/clang22-"$_pin"/bin} \
             /usr/local/mavergreen/clang22/bin; do
     [ -x "$_d/llvm-otool" ] || continue
     LIPO="$_d/llvm-lipo"; OTOOL="$_d/llvm-otool"; NM="$_d/llvm-nm"; STRINGS="$_d/llvm-strings"
@@ -322,6 +342,26 @@ prune_proc_macro_dylibs() {
     "${NM:-nm}" -gU "$_d" 2>/dev/null | grep -q '__rustc_proc_macro_decls_' && rm -f "$_d"
   done
   return 0
+}
+
+_tool_version() { command -v "$1" >/dev/null 2>&1 || return 0; "$1" --version 2>&1 | sed -n 1p; }
+
+record_build_tools() {
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64) _bh=x86_64-unknown-linux-gnu ;;
+    Darwin/arm64) _bh=aarch64-apple-darwin ;;
+    Darwin/x86_64) _bh=x86_64-apple-darwin ;;
+    *) _bh="$(uname -sm)" ;;
+  esac
+  if [ "$(uname -s)" = Linux ]; then _libc="$(getconf GNU_LIBC_VERSION 2>/dev/null)" || _libc=""; else _libc="$(uname -sr)"; fi
+  {
+    printf 'build-host=%s\n' "$_bh"
+    printf 'build-host-cmake=%s\n' "$(_tool_version "${CMAKE:-cmake}")"
+    printf 'build-host-ninja=%s\n' "$(_tool_version "${NINJA:-ninja}")"
+    printf 'build-host-make=%s\n' "$(_tool_version "${MAKE:-make}")"
+    printf 'build-host-libc=%s\n' "$_libc"
+    printf 'build-host-python=%s\n' "$(_tool_version python3)"
+  } >> "$1"
 }
 
 stage_stamp() {

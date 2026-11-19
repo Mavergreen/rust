@@ -107,7 +107,7 @@ clang22() {
     sudo "$MG/bin/longboat" install 10.9 || return 1
     : > "$w/installed-sdk109"
   fi
-  ct="$(tr -d ' \t\n' < "$ROOT/components/clang/version")"
+  ct="$(tr -d ' \t\n' < "$ROOT/components/clang22/version")"
   cp="$(gh_pkg clang-22 "$ct" "mavericks-clang-22-native-$ct.pkg" "clang-22-native-$ct.pkg")" || return 1
   sudo installer -pkg "$cp" -target / || return 1
   : > "$w/installed-clang22"
