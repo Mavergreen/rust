@@ -17,7 +17,8 @@ fi
 export RUST_SRC_URL="https://static.rust-lang.org/dist/rustc-${RUST_VERSION}-src.tar.xz"
 export RUST_SRC_SHA_URL="${RUST_SRC_URL}.sha256"
 
-export CLANG_PIN_FILE="$REPO_ROOT/components/clang/version"
+export CLANG_PIN_DIR="$REPO_ROOT/components/clang22"
+export CLANG_PIN_FILE="$CLANG_PIN_DIR/version"
 export RECAULK_PIN_FILE="$REPO_ROOT/components/recaulk/version"
 RECAULK_VERSION="$(tr -d ' \t\n' < "$RECAULK_PIN_FILE")"; export RECAULK_VERSION
 [ -n "$RECAULK_VERSION" ] || { echo "versions.sh: empty $RECAULK_PIN_FILE" >&2; exit 1; }

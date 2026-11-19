@@ -25,7 +25,7 @@ if [ "$(sh "$SHIPYARD_SCRIPTS/mavericks_mode.sh")" = native ]; then
   #       the one the build prepared (its SDK and Recaulk), which matches only a current stage
   stage_is_current "$WORK_ROOT/work-native/staged.stamp" native \
     || { echo "the native stage is stale (build-native.sh again) -- skipping the on-box link"; exit 77; }
-  c22="$WORK_ROOT/work-native/clang-native-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")/bin/clang++"
+  c22="$WORK_ROOT/work-native/clang22-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")/bin/clang++"
   [ -x "$c22" ] || fail "the build's clang22 is gone: $c22"
   t="$(mktemp -d "${TMPDIR:-/tmp}/mavnat.XXXXXX")"; trap 'rm -rf "$t" "$list"' EXIT
   sed -n '/^use std::collections/,/^}/p' "$HERE/smoke-target.sh" > "$t/smoke.rs"

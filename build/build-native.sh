@@ -17,13 +17,13 @@ rm -f "$WORK/staged.stamp"; rm -rf "$NATIVE_STAGE_ROOT"
 
 case "$MODE" in
   cross)  [ "$(uname -m)" = arm64 ] || { echo "FATAL: cross-hosting needs an arm64 build machine (got $(uname -m))" >&2; exit 1; }
-          BUILD_TRIPLE=aarch64-apple-darwin; CLANG_VARIANT=cross ;;
-  native) BUILD_TRIPLE=x86_64-apple-darwin;  CLANG_VARIANT=native ;;
+          BUILD_TRIPLE=aarch64-apple-darwin ;;
+  native) BUILD_TRIPLE=x86_64-apple-darwin ;;
   *) echo "FATAL: mavericks_mode.sh said '$MODE'" >&2; exit 1 ;;
 esac
-export CLANG_VARIANT
 mkdir -p "$WORK"
-CLANGDIR="$(sh "$HERE/fetch-clang.sh")"; macho_tools
+C22="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR")"
+CLANGDIR="$(clang_work_copy "$C22")"; macho_tools
 SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh")"; populate_clang_sdk "$CLANGDIR" "$SDK"
 RECAULK_A="$(fetch_recaulk)"
 MAKE_BIN="$(fetch_make)"
@@ -31,7 +31,7 @@ SRC="$(sh "$HERE/fetch-rust-src.sh")"
 install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
 STAGE0=""
-if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0-onbox.sh" "$CLANGDIR" "$RECAULK_A")"; fi
+if [ "$MODE" = native ]; then STAGE0="$(sh "$HERE/fetch-stage0.sh" "$CLANGDIR" "$RECAULK_A")"; fi
 write_bootstrap_toml "$SRC" "$NATIVE_PREFIX" "$BUILD_TRIPLE" "$TARGET_TRIPLE" "$CLANGDIR" $STAGE0
 write_x86_cmake_toolchain "$WORK/x86_64-10.9.cmake" "$SDK" "$CLANGDIR"
 pin_onbox_tools "$BUILD_TRIPLE" "$CLANGDIR" "$SDK"

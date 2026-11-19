@@ -18,7 +18,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^components/clang/version$/"
+        "/^components/clang22/version$/"
       ],
       "matchStrings": [
         "^(?<currentValue>\\S+)\\s*$"
@@ -61,5 +61,8 @@
       ],
       "groupName": "clang-22 and Recaulk"
     }
+  ],
+  "gitIgnoredAuthors": [
+    "342268518+mavergreen-pins-bot[bot]@users.noreply.github.com"
   ]
 }
