@@ -1,8 +1,8 @@
 # Build ingredients
 
-Everything baked into the shipped `rust` and `rust-cross` `.pkg`s, where it is pinned, and how a
-change reaches a release. The *own upstream* is Rust; an ingredient is anything else the artifacts are
-built with.
+Everything baked into the shipped `rust` and `rust-cross` `.pkg`s and the Linux-hosted
+`rust-<v>-linux-x86_64.tar.gz`, where it is pinned, and how a change reaches a release. The *own
+upstream* is Rust; an ingredient is anything else the artifacts are built with.
 
 | Ingredient | Pinned in | Renovate | On a bump |
 |---|---|---|---|
@@ -12,6 +12,7 @@ built with.
 | GNU make (builds cargo's vendored OpenSSL on a Mac) | `components/make/version` | ✅ `github-releases` on `Mavergreen/make`, `-mavericks.N` versioning | repackage |
 | Linux host CMake, Ninja and GNU make (configure and drive the Linux-hosted build of the native toolchain and its updater; make also builds cargo's vendored OpenSSL there) | runner-provided (`ubuntu-latest`, ninja from apt's `ninja-build`), unpinned; `build-info-*.txt` records each `--version` (`build-host-cmake`, `build-host-ninja`, `build-host-make`), with the host's libc (`build-host-libc`) and python (`build-host-python`) | ❌ **untrackable**: the runner image provides them, so no pin exists to track. Exit: when shipyard pins cmake, ninja and make for Linux hosts as it pins them for a Mac, take those | none; a runner image update can change them |
 | Linux host libc++ and libc++abi (the C++ library of the Linux-hosted build's own compilers and LLVM: shipyard's `fetch_host_libcxx.sh`, static, built by clang22 from the llvm-project source its pin is built from) | `components/clang22/llvm-project` (`LLVM_VERSION SHA256` of `llvm-project-<v>.src.tar.xz`), which must agree with `components/clang22/version` | ❌ **untrackable** by a bot: it must name the LLVM release clang22 is built from, which `fetch_host_libcxx.sh` enforces, so it moves by hand with a clang22 LLVM bump | none: nothing it builds ships. Exit: when clang-22 ships a Linux-host libc++, take it from the pinned archive and drop `llvm-project` |
+| clang-22's Linux base image (the build host of the Linux tarball, and its glibc floor: glibc, CMake, Ninja, GNU make and python3 at the versions its `packages.lock` names; the build adds cpio, file and ccache from the same apt snapshot, `build/linux/Dockerfile`) | `build/linux/base-image`, `apt-snapshot` and `packages.lock` in `Mavergreen/clang-22` at the tag `components/clang22/version` names | ✅ moves with the clang22 pin | repackage → `-mavericks.(N+1)` |
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
@@ -108,5 +109,7 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 
 - python3: x.py, Rust's own build driver, is Python; a native 10.9 build takes python3 from pkgsrc. No alternative exists upstream.
 - sdk-pin:usr/local/mavergreen/*/lib/rustlib/*/lib/*.rlib: rustc-emitted objects record no SDK, and rustc clamps every x86_64-apple-darwin object to minos 10.12 (os_minimum_deployment_target). These rlibs are link inputs, not installed executables: every x86_64 link goes through bin/rustc, which passes -mmacosx-version-min=10.9, and the compat guard plus the real-10.9 runs check the linked output. Only patching rustc's target spec would change them.
+- sdk-pin:opt/mavergreen/rust/lib/rustlib/*/lib/*.rlib: the Linux tarball's rlibs, for the same reason: rustc clamps every x86_64-apple-darwin object to minos 10.12 and records no SDK, and every x86_64 link goes through bin/rustc, which passes -mmacosx-version-min=10.9.
+- linux:opt/mavergreen/rust/*: rustc and cargo hosted on x86_64 Linux, targeting Mac OS X 10.9, for builds of 10.9 products on Linux (codex-cli, and the pinned toolchain set Aqua WebKit's Linux build fetches)
 - floor:rust-cross-*.pkg: the cross toolchain runs on macOS 11 and later and only targets 10.9, so its archive's install floor is 11.0, not 10.9.5.
 - bare-curl:build/check-release-on-10.9.sh: it runs from a bare checkout on a 10.9 box, the family VM included, where shipyard isn't installed, so it downloads the pkg, SHA256SUMS and Longboat with 10.9's own curl rather than shipyard_curl. Exit: the VM job puts shipyard's scripts into the guest.
