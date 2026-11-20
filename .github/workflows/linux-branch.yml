@@ -223,3 +223,59 @@ jobs:
         with:
           name: build-cross-linux
           path: ${{ runner.temp }}/out
+
+  # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D7 (shipyard) -- the Linux tarball is built and smoked inside clang-22's pinned base image, the family's glibc floor
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    # platform: only an explicit bash shell runs with pipefail, and the build pipes into tee
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Free disk
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D11 (shipyard) -- the work tree goes on the runner's largest free volume
+      - name: Work on the largest free volume
+        run: |
+          best=""; bestk=0
+          for v in / /mnt; do
+            [ -d "$v" ] || continue
+            k="$(df -Pk "$v" | awk 'NR == 2 { print $4 }')"
+            if [ "$k" -gt "$bestk" ]; then best="$v"; bestk="$k"; fi
+          done
+          w="${best%/}/mavergreen-rust"
+          sudo mkdir -p "$w/home" && sudo chown -R "$(id -u):$(id -g)" "$w"
+          echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "work on $w ($((bestk / 1048576)) GB free)"
+      # platform: the container sees the checkout, shipyard and the work volume at their runner paths, so
+      #           a path one step records is the path the next one reads
+      - name: clang-22's pinned Linux base image
+        run: |
+          pin="$(tr -d ' \t\n' < components/clang22/version)"
+          c="$RUNNER_TEMP/clang-22"
+          git clone -q --depth 1 --branch "$pin" --filter=blob:none --sparse https://github.com/Mavergreen/clang-22.git "$c"
+          git -C "$c" sparse-checkout set build/linux
+          echo "base image: $(cat "$c/build/linux/base-image") (clang-22 $pin)"
+          docker build -q --build-arg "BASE_IMAGE=$(cat "$c/build/linux/base-image")" -t clang22-linux-base "$c/build/linux"
+          s="$(cd -P "$SHIPYARD_SCRIPTS" && pwd)"
+          {
+            echo "SHIPYARD_REAL=$s"
+            echo "DOCKER_MOUNTS=-v $GITHUB_WORKSPACE:$GITHUB_WORKSPACE -v $(dirname "$s"):$(dirname "$s"):ro -v $MAVERICKS_WORK:$MAVERICKS_WORK -w $GITHUB_WORKSPACE"
+          } >> "$GITHUB_ENV"
+      - name: Smoke on clang-22's base image
+        run: |
+          tb="$(echo "$GITHUB_WORKSPACE"/dist/rust-*-linux-x86_64.tar.gz)"
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            clang22-linux-base sh tests/linux-smoke.sh "$tb" 2>&1 | tee "$RUNNER_TEMP/linux-smoke.log"

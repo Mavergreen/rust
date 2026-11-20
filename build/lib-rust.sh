@@ -476,6 +476,47 @@ prune_proc_macro_dylibs() {
   return 0
 }
 
+# spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D7 (shipyard) -- the
+#       Linux tarball runs on the family's glibc floor, clang-22's pinned base image
+# platform: rustc's LLVM links the host libc++ statically (use-libcxx, linux_host_compilers), so a
+#           shipped ELF loads glibc, libgcc_s and rust's own libraries, the last through an $ORIGIN
+#           RUNPATH; ld.so searches DT_RPATH before LD_LIBRARY_PATH, so the tarball uses RUNPATH only
+audit_linux_elf() {
+  _ro="${CLANGDIR:?audit_linux_elf reads ELF with clang22, and CLANGDIR is unset}/bin/llvm-readobj"
+  _al="$(mktemp "${TMPDIR:-/tmp}/audit-elf.XXXXXX")"
+  find "$1/bin" "$1/lib" -type f 2>/dev/null > "$_al" || true
+  _n=0; _bad=0; _or='$ORIGIN'
+  while IFS= read -r _f; do
+    [ "$(od -An -tx1 -N4 "$_f" 2>/dev/null | tr -d ' \n')" = 7f454c46 ] || continue
+    _n=$((_n+1)); _rel="${_f#"$1"/}"
+    _dyn="$("$_ro" --dynamic-table "$_f" 2>&1)" || { echo "$_rel: llvm-readobj cannot read it: $_dyn"; _bad=$((_bad+1)); continue; }
+    _ok=1
+    if printf '%s\n' "$_dyn" | grep -q ' RPATH '; then echo "$_rel has DT_RPATH, which outranks LD_LIBRARY_PATH; it wants RUNPATH"; _ok=0; fi
+    _rp="$(printf '%s\n' "$_dyn" | sed -n 's/.* RUNPATH .*\[\(.*\)\]$/\1/p')"
+    _oldifs="$IFS"; IFS=:
+    for _e in $_rp; do
+      case "$_e" in '$ORIGIN'|'$ORIGIN/'*) : ;; *) echo "$_rel: its RUNPATH names $_e, not a path from \$ORIGIN"; _ok=0 ;; esac
+    done
+    IFS="$_oldifs"
+    for _lib in $(printf '%s\n' "$_dyn" | sed -n 's/.* NEEDED .*\[\(.*\)\]$/\1/p'); do
+      case " libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 librt.so.1 libutil.so.1 libgcc_s.so.1 ld-linux-x86-64.so.2 " in
+        *" $_lib "*) continue ;;
+      esac
+      _found=0; IFS=:
+      for _e in $_rp; do
+        case "$_e" in '$ORIGIN'*) [ ! -f "$(dirname "$_f")${_e#"$_or"}/$_lib" ] || _found=1 ;; esac
+      done
+      IFS="$_oldifs"
+      [ "$_found" = 1 ] || { echo "$_rel needs $_lib, which neither glibc's floor nor its RUNPATH (${_rp:-none}) provides"; _ok=0; }
+    done
+    [ "$_ok" = 1 ] || _bad=$((_bad+1))
+  done < "$_al"
+  rm -f "$_al"
+  echo "checked $_n ELF under $1: $_bad refused"
+  [ "$_n" -gt 0 ] || { echo "no ELF under $1/{bin,lib} -- nothing audited"; return 1; }
+  [ "$_bad" -eq 0 ]
+}
+
 _tool_version() { command -v "$1" >/dev/null 2>&1 || return 0; "$1" --version 2>&1 | sed -n 1p; }
 
 record_build_tools() {

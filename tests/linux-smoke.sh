@@ -1,0 +1,120 @@
+#!/bin/sh
+# platform: host-agnostic
+#   usage: linux-smoke.sh [TARBALL]
+#          The smoke of the Linux-hosted tarball (rust-<v>-linux-x86_64.tar.gz). Its static half runs
+#          on any host: fixture Mach-O and ELF files, a good one of each passing and each bad one
+#          failing, show what the two audits refuse. The executing half runs on Linux only. It unpacks
+#          TARBALL as shipyard's fetch_product_tar.sh does, then checks the three things below.
+#            - The shipped ELF loads only glibc, libgcc_s and its own libraries.
+#            - rustc -vV names the Linux host and the pinned release.
+#            - cargo builds a HashMap+Instant program for x86_64-apple-darwin, linked by clang22's
+#              clang++ against the pinned 10.9 SDK, and the output is thin x86_64 with minos 10.9,
+#              sdk 10.9, Recaulk's _clock_gettime, and no /opt/ load path.
+#            - a host-target hello builds and runs.
+#          TARBALL defaults to the one dist/ holds. Naming one makes its absence a failure. Without
+#          one, and with none in dist/, it ends after the static half; off Linux it ends there too.
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
+. "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"; . "$ROOT/tests/lib/clang22.sh"; macho_tools
+t="$(cd -P "$(mktemp -d "${TMPDIR:-/tmp}/linux-smoke.XXXXXX")" && pwd)"; trap 'rm -rf "$t"' EXIT
+fail() { echo "FAIL $1"; exit 1; }
+
+minos_sdk() {
+  "$OTOOL" -l "$1" | awk '$1 == "cmd" { v = ($2 == "LC_VERSION_MIN_MACOSX"); b = ($2 == "LC_BUILD_VERSION") }
+    (v && $1 == "version") || (b && $1 == "minos") { m = $2 } (v || b) && $1 == "sdk" { s = $2 } END { print m " " s }'
+}
+audit_macho() {
+  "$LIPO" -info "$1" | grep -Eq 'architecture: x86_64 *$' || { echo "$2 is not thin x86_64"; return 1; }
+  _v="$(minos_sdk "$1")"
+  [ "$_v" = "10.9 10.9" ] || { echo "$2 records minos and sdk '$_v', not '10.9 10.9'"; return 1; }
+  "$NM" --defined-only "$1" | awk '$3 == "_clock_gettime" { f = 1 } END { exit !f }' \
+    || { echo "$2 does not define _clock_gettime: 10.9's libSystem has none, so Recaulk's was not linked"; return 1; }
+  _p="$( { "$OTOOL" -L "$1" | tail -n +2 | awk '{ print $1 }'
+           "$OTOOL" -l "$1" | awk '/LC_RPATH/ { r = 1 } r && / path / { print $2; r = 0 }'; } | grep '^/opt/' | sed -n 1p)" || _p=""
+  [ -z "$_p" ] || { echo "$2 loads $_p"; return 1; }
+}
+
+printf 'int clock_gettime(int c, void *s) { (void)c; (void)s; return 0; }\nint main(void) { return 0; }\n' > "$t/cg.c"
+printf 'int main(void) { return 0; }\n' > "$t/main.c"
+fixture_cc -o "$t/good" "$t/cg.c"
+audit_macho "$t/good" good > "$t/out" || { cat "$t/out"; fail "a 10.9 x86_64 fixture with _clock_gettime must pass the Mach-O audit"; }
+bad_macho() {
+  if audit_macho "$t/bad" bad > "$t/out"; then fail "the Mach-O audit passed a fixture it must refuse: $1"; fi
+  grep -q "$2" "$t/out" || { cat "$t/out"; fail "the refusal must say $2 ($1)"; }
+}
+"$CLANGDIR/bin/clang" --no-default-config -fuse-ld=lld --ld-path="$CLANGDIR/bin/ld64.lld" \
+  -target x86_64-apple-macos10.12 -isysroot "$S9" -o "$t/bad" "$t/cg.c"
+bad_macho "minos 10.12" "records minos and sdk '10.12"
+fixture_cc -o "$t/bad" "$t/main.c"; bad_macho "no Recaulk" "_clock_gettime"
+fixture_cc -Wl,-rpath,/opt/pkg/lib -o "$t/bad" "$t/cg.c"; bad_macho "an rpath into /opt/pkg" "loads /opt/pkg/lib"
+
+elf() { "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-unknown-linux-gnu -fuse-ld=lld -nostdlib -fPIC "$@"; }
+printf 'int f(void) { return 1; }\n' > "$t/f.c"
+printf 'int f(void);\nint _start(void) { return f(); }\n' > "$t/m.c"
+E="$t/elf"; mkdir -p "$E/bin" "$E/lib" "$t/elsewhere"
+elf -shared -Wl,-soname,libf.so -o "$E/lib/libf.so" "$t/f.c"
+elf -shared -Wl,-soname,libc.so.6 -o "$t/elsewhere/libc.so.6" "$t/f.c"
+elf -shared -Wl,-soname,libc++.so.1 -o "$t/elsewhere/libc++.so.1" "$t/f.c"
+elf -o "$E/bin/tool" "$t/m.c" -L"$E/lib" -lf -L"$t/elsewhere" -l:libc.so.6 -Wl,-rpath,'$ORIGIN/../lib'
+audit_linux_elf "$E" > "$t/out" || { cat "$t/out"; fail "a tool loading libc and its own lib/ through \$ORIGIN/../lib must pass the ELF audit"; }
+bad_elf() {
+  shift_why="$1"; shift_want="$2"; shift 2
+  rm -rf "$t/bad-elf"; cp -R "$E" "$t/bad-elf"; elf -o "$t/bad-elf/bin/tool" "$t/m.c" "$@"
+  if audit_linux_elf "$t/bad-elf" > "$t/out"; then fail "the ELF audit passed a fixture it must refuse: $shift_why"; fi
+  grep -qF "$shift_want" "$t/out" || { cat "$t/out"; fail "the refusal must say $shift_want ($shift_why)"; }
+}
+bad_elf "libc++ from the build host" "needs libc++.so.1" -L"$E/lib" -lf -L"$t/elsewhere" -l:libc++.so.1 -Wl,-rpath,'$ORIGIN/../lib'
+bad_elf "no RUNPATH" "needs libf.so" -L"$E/lib" -lf
+bad_elf "an absolute RUNPATH" "RUNPATH names /work/lib" -L"$E/lib" -lf -Wl,-rpath,'$ORIGIN/../lib:/work/lib'
+bad_elf "DT_RPATH" "DT_RPATH" -L"$E/lib" -lf -Wl,--disable-new-dtags -Wl,-rpath,'$ORIGIN/../lib'
+
+TB="${1:-}"; named=0
+[ -z "$TB" ] || named=1
+if [ "$named" = 0 ]; then
+  for _f in "$ROOT"/dist/rust-*-linux-x86_64.tar.gz; do [ -f "$_f" ] || continue; [ -z "$TB" ] || fail "dist/ holds more than one Linux tarball"; TB="$_f"; done
+  [ -n "$TB" ] || { echo "OK linux-smoke (fixtures; no Linux tarball in dist/)"; exit 0; }
+fi
+[ -f "$TB" ] || fail "no Linux tarball at $TB"
+[ "$(uname -s)" = Linux ] || {
+  [ "$named" = 0 ] || fail "the Linux tarball runs on Linux, and this is $(uname -s)"
+  echo "OK linux-smoke (fixtures; the executing half needs Linux, and this is $(uname -s))"; exit 0
+}
+
+P="$t/rust"
+python3 "$SHIPYARD_SCRIPTS/product-tar.py" "$TB" "$NATIVE_SHORT" "$(_sha256 "$TB")" "$P" > /dev/null \
+  || fail "shipyard's product-tar.py refuses $TB (fetch_product_tar.sh's contract: everything under opt/mavergreen/$NATIVE_SHORT, no absolute symlinks)"
+for _b in rustc cargo rustdoc clippy-driver cargo-clippy rustfmt cargo-fmt; do
+  [ -x "$P/bin/$_b" ] || fail "the tarball lacks bin/$_b"
+done
+audit_linux_elf "$P" > "$t/out" || { cat "$t/out"; fail "the tarball's ELF loads what the glibc floor does not provide"; }
+for _b in rustc cargo rustdoc clippy-driver rustfmt; do
+  "$P/bin/$_b" --version > "$t/out" 2>&1 || { cat "$t/out"; fail "bin/$_b --version does not run on $(getconf GNU_LIBC_VERSION 2>/dev/null)"; }
+done
+vv="$("$P/bin/rustc" -vV)"
+printf '%s\n' "$vv" | grep -qx 'host: x86_64-unknown-linux-gnu' || fail "rustc -vV names no Linux host: $vv"
+printf '%s\n' "$vv" | grep -qx "release: $RUST_VERSION" || fail "rustc -vV names no release $RUST_VERSION: $vv"
+[ -f "$P/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a" ] || fail "the tarball lacks lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
+
+A="$t/app"; mkdir -p "$A/src"
+printf '[package]\nname = "smoke"\nversion = "0.1.0"\nedition = "2021"\n' > "$A/Cargo.toml"
+cat > "$A/src/main.rs" <<'RS'
+use std::collections::HashMap;
+use std::time::Instant;
+fn main() {
+    let start = Instant::now();
+    let mut m = HashMap::new();
+    m.insert("mavericks", 109);
+    println!("smoke {:?} {}", m.get("mavericks"), start.elapsed().as_secs() < 60);
+}
+RS
+CARGO_HOME="$t/cargo-home" CARGO_TARGET_DIR="$t/target" RUSTC="$P/bin/rustc" RUSTDOC="$P/bin/rustdoc" \
+  CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" SDKROOT="$S9" \
+  "$P/bin/cargo" build --offline --manifest-path "$A/Cargo.toml" --target "$TARGET_TRIPLE" > "$t/out" 2>&1 \
+  || { cat "$t/out"; fail "cargo build --target $TARGET_TRIPLE with clang22's clang++ and the 10.9 SDK"; }
+audit_macho "$t/target/$TARGET_TRIPLE/debug/smoke" "the $TARGET_TRIPLE smoke" > "$t/out" || { cat "$t/out"; fail "the 10.9 program cargo built"; }
+
+hostcc="$(command -v cc || command -v gcc || command -v gcc-12)" || fail "no C compiler driver on PATH links the host-target hello"
+printf 'fn main() { println!("hello from {}", std::env::consts::OS); }\n' > "$t/hello.rs"
+"$P/bin/rustc" -C linker="$hostcc" "$t/hello.rs" -o "$t/hello" > "$t/out" 2>&1 || { cat "$t/out"; fail "rustc hello.rs for the Linux host"; }
+[ "$("$t/hello")" = "hello from linux" ] || fail "the host hello printed '$("$t/hello")'"
+echo "OK linux-smoke ($(basename "$TB") on $(getconf GNU_LIBC_VERSION 2>/dev/null || uname -sr))"
