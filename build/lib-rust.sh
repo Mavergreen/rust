@@ -554,7 +554,8 @@ _sha256() {
 stage_stamp() {
   printf 'variant=%s\nrust=%s\nclang=%s\nrecaulk=%s\nmake=%s\n' \
     "$1" "$RUST_VERSION" "$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" "$RECAULK_VERSION" "$MAKE_VERSION"
-  for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh"; do
+  for _f in "$REPO_ROOT/build/lib-rust.sh" "$REPO_ROOT/build/build-$1.sh" "$REPO_ROOT"/patches/*.patch; do
+    [ -f "$_f" ] || continue
     printf '%s %s\n' "$(_sha256 "$_f")" "${_f#"$REPO_ROOT"/}"
   done
 }
