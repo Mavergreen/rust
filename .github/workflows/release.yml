@@ -11,6 +11,10 @@ on:
         description: "Cut a -mavericks.(N+1) repackage of the current upstream"
         type: boolean
         default: false
+      reconcile:
+        description: "Set by the nightly reconcile backstop"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,10 +35,13 @@ jobs:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
       - uses: Mavergreen/shipyard/.github/actions/install@v1
+      # spec: shipyard SKILL.md "A release is a declared state, not an event" -- a dispatch publishes only if release-needed.sh
+      #       still says PUBLISH; only refs/heads/main publishes, so a dispatch on a branch is a dry run
       - id: ver
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LOCAL_RELEASE: ${{ inputs.local_release }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           mode="$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")"
@@ -42,22 +49,37 @@ jobs:
           full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
           rel="$(printf '%s\n' "$out" | sed -n 's/^RELEASE=//p')"
           [ -n "$full" ] || { echo "::error::version.sh gave no FULL= line: $out"; exit 1; }
-          [ "$GITHUB_REF_NAME" = main ] || rel=no
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/heads/main) : ;;
+            workflow_dispatch:refs/heads/main)
+              if [ "$mode" = auto ] && [ "$rel" != yes ]; then
+                digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+                answer="$(sh "$SHIPYARD_SCRIPTS/release-needed.sh" --digest "$digest" --version "$full" --repo "$GITHUB_REPOSITORY")"
+                echo "release-needed: $answer"
+                if [ "$answer" = PUBLISH ]; then
+                  out="$(sh build/version.sh local)"
+                  full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
+                  rel=yes
+                fi
+              fi ;;
+            *) rel=no ;;
+          esac
           { echo "full=$full"; echo "release=$rel"; } >> "$GITHUB_OUTPUT"
           echo "version=$full publish=$rel"
 
-  build:
+  build-native:
     needs: ver
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [native, cross]
-    name: build-${{ matrix.variant }}
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 355
+    # platform: only an explicit bash shell runs with pipefail, and the build pipes into tee
+    defaults:
+      run:
+        shell: bash
     env:
       MAVERICKS_USE_CCACHE: "1"
-      CCACHE_COMPILERCHECK: "%compiler% --version"
+      # platform: the build triple's compilers are wrapper scripts whose flags --version cannot see;
+      #           content hashes the wrapper itself, which the build writes byte-identically each run
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
@@ -68,52 +90,352 @@ jobs:
         run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
       - name: Record the pre-build tree
         run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Free disk
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D11 (shipyard) -- the work tree goes on the runner's largest free volume
+      - name: Work on the largest free volume
+        run: |
+          best=""; bestk=0
+          for v in / /mnt; do
+            [ -d "$v" ] || continue
+            k="$(df -Pk "$v" | awk 'NR == 2 { print $4 }')"
+            if [ "$k" -gt "$bestk" ]; then best="$v"; bestk="$k"; fi
+          done
+          w="${best%/}/mavergreen-rust"
+          sudo mkdir -p "$w" && sudo chown -R "$(id -u):$(id -g)" "$w"
+          mkdir -p "$HOME/.cache/ccache"
+          echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "work on $w ($((bestk / 1048576)) GB free)"
       - name: Ensure ccache and ninja
         run: |
-          command -v ccache >/dev/null 2>&1 || brew install ccache
-          command -v ninja >/dev/null 2>&1 || brew install ninja
+          sudo apt-get update -q
+          sudo apt-get install -y -q ccache ninja-build
+          cmake --version | head -1; ninja --version; make --version | head -1; ccache --version | head -1
       - name: Restore ccache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
-          path: ~/Library/Caches/ccache
-          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
-          restore-keys: ccache-${{ matrix.variant }}-
+          path: ~/.cache/ccache
+          key: ccache-native-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
+          restore-keys: ccache-native-linux-
       - name: Build
         id: build
-        run: sh build/build-${{ matrix.variant }}.sh
+        run: |
+          ccache -z
+          date -u +%s > "$RUNNER_TEMP/start"
+          ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
+          sh build/build-native.sh 2>&1 | tee "$RUNNER_TEMP/build-native.log"
       # spec: docs/superpowers/specs/2026-09-25-rust-plan3b-release-design.md "Caching" -- a cache key
       #       can't be overwritten, so a run that fails or times out saves under a per-run key
       - name: Save ccache even when the build or a later step fails
         if: ${{ always() && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v6
         with:
-          path: ~/Library/Caches/ccache
-          key: ccache-${{ matrix.variant }}-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ~/.cache/ccache
+          key: ccache-native-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Package
-        run: sh build/package-${{ matrix.variant }}-pkg.sh
-      - name: Tests
-        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
-      - name: Disk used
+        run: sh build/package-native-pkg.sh 2>&1 | tee "$RUNNER_TEMP/package-native.log"
+      - name: Wall time, ccache and disk
         if: always()
         run: |
-          df -h "$HOME" | tail -1
-          du -sh "$HOME/.cache/mavergreen-rust" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+          ccache -sv || true
+          du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+          du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+          df -h / /mnt
+      - name: The build and the packager ran no xcrun, /usr/bin/clang or pkgutil
+        run: sh build/assert-no-apple-host-tools.sh "$RUNNER_TEMP/build-native.log" "$RUNNER_TEMP/package-native.log"
+      - name: Tests, with the stage
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
       - uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ matrix.variant }}
+          name: dist-native
+          if-no-files-found: error
           path: |
             dist/*.pkg
             dist/build-info-*.txt
+      - name: The build logs, when the job fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-native
+          path: ${{ runner.temp }}/*.log
       - name: The build must not have written into the source tree
         run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
 
-  collect:
-    needs: [ver, build]
-    runs-on: macos-26
+  build-cross:
+    needs: ver
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    # platform: only an explicit bash shell runs with pipefail, and the build pipes into tee
+    defaults:
+      run:
+        shell: bash
+    env:
+      MAVERICKS_USE_CCACHE: "1"
+      # platform: the build triple's compilers are wrapper scripts whose flags --version cannot see;
+      #           content hashes the wrapper itself, which the build writes byte-identically each run
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
       - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Free disk
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D11 (shipyard) -- the work tree goes on the runner's largest free volume
+      - name: Work on the largest free volume
+        run: |
+          best=""; bestk=0
+          for v in / /mnt; do
+            [ -d "$v" ] || continue
+            k="$(df -Pk "$v" | awk 'NR == 2 { print $4 }')"
+            if [ "$k" -gt "$bestk" ]; then best="$v"; bestk="$k"; fi
+          done
+          w="${best%/}/mavergreen-rust"
+          sudo mkdir -p "$w" && sudo chown -R "$(id -u):$(id -g)" "$w"
+          mkdir -p "$HOME/.cache/ccache"
+          echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "work on $w ($((bestk / 1048576)) GB free)"
+      - name: Ensure ccache and ninja
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ccache ninja-build
+          cmake --version | head -1; ninja --version; make --version | head -1; ccache --version | head -1
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-cross-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}
+          restore-keys: |
+            ccache-cross-linux-
+            ccache-native-linux-
+      - name: Build
+        id: build
+        run: |
+          ccache -z
+          date -u +%s > "$RUNNER_TEMP/start"
+          ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
+          sh build/build-cross.sh 2>&1 | tee "$RUNNER_TEMP/build-cross.log"
+      # spec: docs/superpowers/specs/2026-09-25-rust-plan3b-release-design.md "Caching" -- a cache key
+      #       can't be overwritten, so a run that fails or times out saves under a per-run key
+      - name: Save ccache even when the build or a later step fails
+        if: ${{ always() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-cross-linux-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Package
+        run: sh build/package-cross-pkg.sh 2>&1 | tee "$RUNNER_TEMP/package-cross.log"
+      - name: Wall time, ccache and disk
+        if: always()
+        run: |
+          [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+          ccache -sv || true
+          du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+          du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+          df -h / /mnt
+      - name: The build and the packager ran no xcrun, /usr/bin/clang or pkgutil
+        run: sh build/assert-no-apple-host-tools.sh "$RUNNER_TEMP/build-cross.log" "$RUNNER_TEMP/package-cross.log"
+      - name: Tests, with the stage
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-cross
+          if-no-files-found: error
+          path: |
+            dist/*.pkg
+            dist/build-info-*.txt
+      - name: The build logs, when the job fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-cross
+          path: ${{ runner.temp }}/*.log
+      - name: The build must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D7 (shipyard) -- the Linux tarball is built and smoked inside clang-22's pinned base image, the family's glibc floor
+  build-linux:
+    needs: ver
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    # platform: only an explicit bash shell runs with pipefail, and the build pipes into tee
+    defaults:
+      run:
+        shell: bash
+    env:
+      MAVERICKS_USE_CCACHE: "1"
+      # platform: the build triple's compilers are wrapper scripts whose flags --version cannot see;
+      #           content hashes the wrapper itself, which the build writes byte-identically each run
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Free disk
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/julia* || true
+          sudo docker image prune --all --force > /dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D11 (shipyard) -- the work tree goes on the runner's largest free volume
+      - name: Work on the largest free volume
+        run: |
+          best=""; bestk=0
+          for v in / /mnt; do
+            [ -d "$v" ] || continue
+            k="$(df -Pk "$v" | awk 'NR == 2 { print $4 }')"
+            if [ "$k" -gt "$bestk" ]; then best="$v"; bestk="$k"; fi
+          done
+          w="${best%/}/mavergreen-rust"
+          sudo mkdir -p "$w/home" && sudo chown -R "$(id -u):$(id -g)" "$w"
+          mkdir -p "$HOME/.cache/ccache"
+          echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "work on $w ($((bestk / 1048576)) GB free)"
+      # platform: the container sees the checkout, shipyard and the work volume at their runner paths, so
+      #           a path one step records is the path the next one reads
+      - name: clang-22's pinned Linux base image
+        run: |
+          pin="$(tr -d ' \t\n' < components/clang22/version)"
+          c="$RUNNER_TEMP/clang-22"
+          git clone -q --depth 1 --branch "$pin" --filter=blob:none --sparse https://github.com/Mavergreen/clang-22.git "$c"
+          git -C "$c" sparse-checkout set build/linux
+          echo "base image: $(cat "$c/build/linux/base-image") (clang-22 $pin)"
+          docker build -q --build-arg "BASE_IMAGE=$(cat "$c/build/linux/base-image")" -t clang22-linux-base "$c/build/linux"
+          s="$(cd -P "$SHIPYARD_SCRIPTS" && pwd)"
+          {
+            echo "SHIPYARD_REAL=$s"
+            echo "DOCKER_MOUNTS=-v $GITHUB_WORKSPACE:$GITHUB_WORKSPACE -v $(dirname "$s"):$(dirname "$s"):ro -v $MAVERICKS_WORK:$MAVERICKS_WORK -v $CCACHE_DIR:$CCACHE_DIR -w $GITHUB_WORKSPACE"
+          } >> "$GITHUB_ENV"
+          docker build -q --build-arg BASE=clang22-linux-base -t rust-linux-build build/linux
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-hosted-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh', 'build/linux/Dockerfile') }}
+          restore-keys: ccache-linux-hosted-
+      - name: Build
+        id: build
+        run: |
+          date -u +%s > "$RUNNER_TEMP/start"
+          ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            -e MAVERICKS_USE_CCACHE -e CCACHE_COMPILERCHECK -e CCACHE_DIR \
+            rust-linux-build sh -c 'ccache -z && sh build/build-linux.sh' 2>&1 | tee "$RUNNER_TEMP/build-linux.log"
+      # spec: docs/superpowers/specs/2026-09-25-rust-plan3b-release-design.md "Caching" -- a cache key
+      #       can't be overwritten, so a run that fails or times out saves under a per-run key
+      - name: Save ccache even when the build or a later step fails
+        if: ${{ always() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-hosted-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh', 'build/linux/Dockerfile') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Package
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            -e GITHUB_EVENT_NAME rust-linux-build sh build/package-linux.sh 2>&1 | tee "$RUNNER_TEMP/package-linux.log"
+      - name: Wall time, ccache and disk
+        if: always()
+        run: |
+          [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$CCACHE_DIR:$CCACHE_DIR" -e CCACHE_DIR rust-linux-build ccache -sv || true
+          du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+          du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+          df -h / /mnt
+      - name: The build and the packager ran no xcrun, /usr/bin/clang or pkgutil
+        run: sh build/assert-no-apple-host-tools.sh "$RUNNER_TEMP/build-linux.log" "$RUNNER_TEMP/package-linux.log"
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D10 (shipyard) -- the 10.9 program the smoke builds with the tarball's rustc is vm-test's probe
+      - name: Smoke on clang-22's base image, keeping its 10.9 program for vm-test
+        run: |
+          tb="$(echo "$GITHUB_WORKSPACE"/dist/rust-*-linux-x86_64.tar.gz)"
+          [ -f "$tb" ] || { echo "::error::no single Linux tarball in dist/: $tb"; exit 1; }
+          mkdir -p "$MAVERICKS_WORK/vm-probe"
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            clang22-linux-base sh tests/linux-smoke.sh "$tb" "$MAVERICKS_WORK/vm-probe/smoke" 2>&1 | tee "$RUNNER_TEMP/linux-smoke.log"
+          tar -cf "$RUNNER_TEMP/vm-probe.tar" -C "$MAVERICKS_WORK/vm-probe" smoke
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-linux
+          if-no-files-found: error
+          path: |
+            dist/rust-*-linux-x86_64.tar.gz
+            dist/build-info-linux.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vm-probe
+          if-no-files-found: error
+          path: ${{ runner.temp }}/vm-probe.tar
+      - name: The build logs, when the job fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-linux
+          path: ${{ runner.temp }}/*.log
+      - name: The build must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D9 (shipyard) -- the one macOS job: the
+  #       rust-cross pkg's arm64 rustc and cargo run on Apple Silicon, holding no key
+  modern-smoke:
+    needs: [ver, build-cross]
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
+      - uses: actions/download-artifact@v8
+        with: { name: dist-cross, path: dist }
+      - name: Install the rust-cross pkg
+        run: sudo installer -pkg "dist/rust-cross-${{ needs.ver.outputs.version }}.pkg" -target /
+      - name: The installed rust-cross builds 10.9 x86_64 programs on Apple Silicon
+        run: sh tests/smoke-target-exec.sh /usr/local/mavergreen/rust-cross
+
+  collect:
+    needs: [ver, build-native, build-cross, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Conformance reads the pkg payloads with cpio
+        run: command -v cpio || { sudo apt-get update -qq && sudo apt-get install -y -qq cpio; }
       - uses: actions/download-artifact@v8
         with: { pattern: dist-*, merge-multiple: true, path: dist }
       - name: Ingredient pins are well declared
@@ -129,8 +451,13 @@ jobs:
           set -eu
           digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
           sh "$SHIPYARD_SCRIPTS/release-state-record.sh" --notes-file dist/RELEASE_NOTES.md --digest "$digest"
+      - name: clang22's Mach-O readers, for the steps that read the pkgs
+        run: |
+          set -eu
+          CL="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" components/clang22)"
+          { echo "LIPO=$CL/bin/llvm-lipo"; echo "OTOOL=$CL/bin/llvm-otool"; echo "NM=$CL/bin/llvm-nm"; } >> "$GITHUB_ENV"
       - name: Sign both pkgs and write their feeds
-        if: needs.ver.outputs.publish == 'yes'
+        if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
@@ -146,7 +473,7 @@ jobs:
             --channel-title "Rust for Mavericks (cross)" --version "$V" --pkg-url "$base/rust-cross-$V.pkg" \
             --notes-file dist/RELEASE_NOTES.md --pkg "dist/rust-cross-$V.pkg" --min-os 11.0
       - name: Unsigned stand-in feeds (never published)
-        if: needs.ver.outputs.publish != 'yes'
+        if: needs.ver.outputs.publish != 'yes' || github.ref != 'refs/heads/main'
         run: sh "$SHIPYARD_SCRIPTS/stand-in-feeds.sh" dist "${{ needs.ver.outputs.version }}"
       - name: Artifact conformance
         run: |
@@ -154,7 +481,9 @@ jobs:
           facts="$(sh "$SHIPYARD_SCRIPTS/artifact-facts.sh" dist "${{ needs.ver.outputs.version }}")"
           printf '%s\n' "$facts" | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
       - name: Each feed is an upgrade on its line
-        if: needs.ver.outputs.publish == 'yes'
+        if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           for f in rust rust-cross; do
@@ -164,14 +493,16 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: mavergreen-rust
+          if-no-files-found: error
           path: |
             dist/*.pkg
+            dist/rust-*-linux-x86_64.tar.gz
             dist/build-info-*.txt
             dist/RELEASE_NOTES.md
             dist/*.xml
 
   vm-test:
-    needs: [ver, build]
+    needs: [ver, build-native, build-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -182,9 +513,13 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/download-artifact@v8
         with: { name: dist-native, path: dist }
+      - uses: actions/download-artifact@v8
+        with: { name: vm-probe, path: probe }
+      - name: Unpack the Linux-built probe
+        run: tar -xf probe/vm-probe.tar -C probe
       - name: Checksums, as the release will carry them
         run: cd dist && sha256sum rust-*.pkg > SHA256SUMS
-      - name: Install and use the pkg on Mac OS X 10.9
+      - name: Install and use the pkg on Mac OS X 10.9, and run the program the Linux tarball's rustc built
         uses: Mavergreen/mavericks-vm@v1
         env:
           RUST_FULL_VERSION: ${{ needs.ver.outputs.version }}
@@ -196,18 +531,38 @@ jobs:
             sw_vers
             sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; exit 1; }
             MAVERICKS_RELEASE_BASE="file://$PWD/dist" sh build/check-release-on-10.9.sh "$RUST_FULL_VERSION"
+            got="$(./probe/smoke)" || { echo "the Linux-built probe did not run on 10.9"; exit 1; }
+            [ "$got" = "smoke Some(109) true" ] || { echo "the Linux-built probe printed '$got', not 'smoke Some(109) true'"; exit 1; }
+            echo "the Linux-built probe ran on 10.9: $got"
 
   scan:
     needs: [ver, collect]
-    if: always() && needs.ver.outputs.publish == 'yes'
+    if: always() && needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
     permissions: { actions: read, contents: read }
     uses: Mavergreen/shipyard/.github/workflows/scan-for-key.yml@v1
     with: { artifact: mavergreen-rust }
     secrets: { SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_PRIVATE_KEY }}" }
 
   publish:
-    needs: [ver, collect, scan, vm-test]
-    if: needs.ver.outputs.publish == 'yes'
+    needs: [ver, collect, scan, vm-test, modern-smoke]
+    if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
     permissions: { contents: write }
     uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
     with: { version: "${{ needs.ver.outputs.version }}", artifact: mavergreen-rust }
+
+  retry:
+    needs: [ver, publish]
+    if: always() && needs.publish.result == 'failure' && github.ref == 'refs/heads/main'
+    permissions: { contents: read, actions: write }
+    uses: Mavergreen/shipyard/.github/workflows/retry-release.yml@v1
+    with: { version: "${{ needs.ver.outputs.version }}" }
+
+  required:
+    name: required (release)
+    if: always()
+    needs: [ver, build-native, build-cross, build-linux, modern-smoke, collect, vm-test, scan, publish, retry]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
+        with:
+          needs: ${{ toJSON(needs) }}
