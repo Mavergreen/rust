@@ -149,10 +149,18 @@ cmake_shim_dir() {
 }
 
 # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md Task 7 (shipyard) --
-#       shipyard's toolchain file pins arm64's 11.3 SDK and 11.0 floor, and on Linux clang22's Mach-O tools
+#       shipyard's toolchain file pins arm64's 11.3 SDK and 11.0 floor
+# platform: MavericksToolchain.cmake finds clang22's Mach-O tools beside the compiler, which here is a
+#           wrapper, so CMake would take PATH's, and a Linux runner's strip is GNU strip
 write_arm64_cmake_toolchain() {
   [ -f "$2" ] || { echo "FATAL: no MavericksToolchain.cmake at $2" >&2; return 1; }
-  printf 'set(CMAKE_OSX_ARCHITECTURES "arm64")\ninclude("%s")\n' "$2" > "$1"
+  {
+    printf 'set(CMAKE_OSX_ARCHITECTURES "arm64")\n'
+    for _p in INSTALL_NAME_TOOL=llvm-install-name-tool STRIP=llvm-strip NM=llvm-nm; do
+      printf 'set(CMAKE_%s "%s/bin/%s" CACHE FILEPATH "clang22'"'"'s %s, which reads Mach-O")\n' "${_p%%=*}" "$3" "${_p#*=}" "${_p#*=}"
+    done
+    printf 'include("%s")\n' "$2"
+  } > "$1"
 }
 
 write_cmake_toolchain() {
