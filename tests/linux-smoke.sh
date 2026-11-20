@@ -1,6 +1,6 @@
 #!/bin/sh
 # platform: host-agnostic
-#   usage: linux-smoke.sh [TARBALL]
+#   usage: linux-smoke.sh [TARBALL [PROBE]]
 #          The smoke of the Linux-hosted tarball (rust-<v>-linux-x86_64.tar.gz). Its static half runs
 #          on any host: fixture Mach-O and ELF files, a good one of each passing and each bad one
 #          failing, show what the two audits refuse. The executing half runs on Linux only. It unpacks
@@ -13,6 +13,8 @@
 #            - a host-target hello builds and runs.
 #          TARBALL defaults to the one dist/ holds. Naming one makes its absence a failure. Without
 #          one, and with none in dist/, it ends after the static half; off Linux it ends there too.
+#          PROBE is where the 10.9 program is copied, for release.yml's vm-test to run on 10.9; it
+#          prints "smoke Some(109) true".
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"; . "$ROOT/tests/lib/clang22.sh"; macho_tools
@@ -68,7 +70,7 @@ bad_elf "no RUNPATH" "needs libf.so" -L"$E/lib" -lf
 bad_elf "an absolute RUNPATH" "RUNPATH names /work/lib" -L"$E/lib" -lf -Wl,-rpath,'$ORIGIN/../lib:/work/lib'
 bad_elf "DT_RPATH" "DT_RPATH" -L"$E/lib" -lf -Wl,--disable-new-dtags -Wl,-rpath,'$ORIGIN/../lib'
 
-TB="${1:-}"; named=0
+TB="${1:-}"; PROBE="${2:-}"; named=0
 [ -z "$TB" ] || named=1
 if [ "$named" = 0 ]; then
   for _f in "$ROOT"/dist/rust-*-linux-x86_64.tar.gz; do [ -f "$_f" ] || continue; [ -z "$TB" ] || fail "dist/ holds more than one Linux tarball"; TB="$_f"; done
@@ -112,6 +114,7 @@ CARGO_HOME="$t/cargo-home" CARGO_TARGET_DIR="$t/target" RUSTC="$P/bin/rustc" RUS
   "$P/bin/cargo" build --offline --manifest-path "$A/Cargo.toml" --target "$TARGET_TRIPLE" > "$t/out" 2>&1 \
   || { cat "$t/out"; fail "cargo build --target $TARGET_TRIPLE with clang22's clang++ and the 10.9 SDK"; }
 audit_macho "$t/target/$TARGET_TRIPLE/debug/smoke" "the $TARGET_TRIPLE smoke" > "$t/out" || { cat "$t/out"; fail "the 10.9 program cargo built"; }
+[ -z "$PROBE" ] || cp "$t/target/$TARGET_TRIPLE/debug/smoke" "$PROBE" || fail "could not copy the 10.9 program to $PROBE"
 
 hostcc="$(command -v cc || command -v gcc || command -v gcc-12)" || fail "no C compiler driver on PATH links the host-target hello"
 printf 'fn main() { println!("hello from {}", std::env::consts::OS); }\n' > "$t/hello.rs"
