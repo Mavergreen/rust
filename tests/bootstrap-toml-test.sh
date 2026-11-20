@@ -103,6 +103,9 @@ for f in --no-default-config --target=arm64-apple-macos11.0; do
 done
 [ "$(awk 'p { s = $0; p = 0 } $0 == "-isysroot" { p = 1 } END { print s }' "$t/pcxx.compile")" = /sdk113 ] \
   || fail "arm64 c++ is clang22: a compile's last -isysroot must be the 11.3 SDK"
+grep -qx -- -nostdinc++ "$t/pcxx.compile" && [ "$(awk 'p { s = $0; p = 0 } $0 == "-isystem" { p = 1 } END { print s }' "$t/pcxx.compile")" = /sdk113/usr/include/c++/v1 ] \
+  || fail "arm64 c++ is clang22: C++ compiles read the 11.3 SDK's libc++ headers, which match the libc++ arm64 links against (clang22's own are libc++ 22's: __libcpp_verbose_abort, __hash_memory)"
+! grep -q -- -nostdinc++ "$t/pcc.link" || fail "arm64 linker is clang22: the C driver, rustc's linker, gets no C++ header flags"
 ! grep -qx -- -fuse-ld=lld "$t/pcxx.compile" \
   || fail "arm64 c++ is clang22: a compile gets no -fuse-ld (CMake's flag checks read the unused-argument warning as a missing flag)"
 mkdir -p "$t/cc"
