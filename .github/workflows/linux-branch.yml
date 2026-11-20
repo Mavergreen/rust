@@ -79,6 +79,8 @@ jobs:
           date -u +%s > "$RUNNER_TEMP/start"
           ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
           sh build/build-native.sh 2>&1 | tee "$RUNNER_TEMP/build-native.log"
+      - name: Package
+        run: sh build/package-native-pkg.sh 2>&1 | tee "$RUNNER_TEMP/package-native.log"
       - name: Save ccache even when the build fails
         if: ${{ always() && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v6
@@ -95,21 +97,24 @@ jobs:
           du -sh "$MAVERICKS_WORK" 2>/dev/null || true
           df -h / /mnt
       # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md "Review Focus" (shipyard) -- rustc's Apple-target links get their SDK and linker from us
-      - name: The build ran no xcrun, /usr/bin/clang or pkgutil
+      - name: The build and the packager ran no xcrun, /usr/bin/clang or pkgutil
         run: |
-          if grep -nE 'xcrun|/usr/bin/clang|pkgutil' "$RUNNER_TEMP/build-native.log"; then
-            echo "::error::the build log names xcrun, /usr/bin/clang or pkgutil"; exit 1
-          fi
-          echo "no xcrun, /usr/bin/clang or pkgutil in $(wc -l < "$RUNNER_TEMP/build-native.log") log lines"
+          for l in build-native package-native; do
+            if grep -nE 'xcrun|/usr/bin/clang|pkgutil' "$RUNNER_TEMP/$l.log"; then
+              echo "::error::the $l log names xcrun, /usr/bin/clang or pkgutil"; exit 1
+            fi
+            echo "no xcrun, /usr/bin/clang or pkgutil in $(wc -l < "$RUNNER_TEMP/$l.log") $l log lines"
+          done
       - name: Tests, with the stage
         run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh" --strict-host
       - name: Pack the stage and the logs
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          cp "$RUNNER_TEMP/build-native.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/build-native.log" "$RUNNER_TEMP/package-native.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
           w="$MAVERICKS_WORK/work-native"
           [ ! -d "$w/stage" ] || tar -czf "$RUNNER_TEMP/out/stage-native.tar.gz" -C "$w/stage" .
+          cp dist/*.pkg dist/build-info-*.txt "$w/staged.stamp" "$RUNNER_TEMP/out/" 2>/dev/null || true
           find "$w" -path '*/CMakeFiles/CMakeConfigureLog.yaml' -o -path '*/CMakeFiles/CMakeError.log' -o -name bootstrap.toml 2>/dev/null \
             | tar -czf "$RUNNER_TEMP/out/build-logs.tar.gz" -T - 2>/dev/null || true
       - uses: actions/upload-artifact@v7

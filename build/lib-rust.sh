@@ -435,6 +435,10 @@ prune_proc_macro_dylibs() {
 _tool_version() { command -v "$1" >/dev/null 2>&1 || return 0; "$1" --version 2>&1 | sed -n 1p; }
 
 record_build_tools() {
+  # platform: a Mac's bare make and cmake are the Command Line Tools stubs, so a Mac records the pinned ones
+  if [ "$(uname -s)" != Linux ] && { [ -z "${MAKE:-}" ] || [ -z "${CMAKE:-}" ]; }; then
+    echo "FATAL: on a Mac record_build_tools records \$MAKE and \$CMAKE, and one is unset" >&2; return 1
+  fi
   case "$(uname -s)/$(uname -m)" in
     Linux/x86_64) _bh=x86_64-unknown-linux-gnu ;;
     Darwin/arm64) _bh=aarch64-apple-darwin ;;
