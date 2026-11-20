@@ -32,7 +32,13 @@ stub "$t/sy/fetch_sdk.sh" "case \"\$*\" in *arm64*) echo '$t/sdk-arm64' ;; *) ec
 stub "$t/sy/fetch_product_pkg.sh" 'mkdir -p "$3/lib" "$3/bin"; : > "$3/lib/librecaulk.a"; printf "#!/bin/sh\n" > "$3/bin/make"; chmod +x "$3/bin/make"; echo "$3"'
 stub "$t/sy/fetch_host_libcxx.sh" "touch '$t/host-libcxx-called'; exit 1"
 stub "$t/shipyard-cmake" 'exit 0'
-mkdir -p "$t/src/rustc-$V-src"; : > "$t/src/rustc-$V-src/x.py"; ( cd "$t/src" && tar -cf "$t/src.tar" "rustc-$V-src" )
+mkdir -p "$t/src/rustc-$V-src"; : > "$t/src/rustc-$V-src/x.py"
+for p in "$ROOT"/patches/*.patch; do
+  [ -f "$p" ] || continue
+  awk -v d="$t/src/rustc-$V-src" '/^--- a\//{f=d "/" substr($2, 3); sub(/\/[^\/]*$/, "", f); system("mkdir -p \"" f "\""); f=d "/" substr($2, 3); h=0; next}
+    /^@@/{h=1; next} h && /^[ -]/{print substr($0, 2) >> f}' "$p"
+done
+( cd "$t/src" && tar -cf "$t/src.tar" "rustc-$V-src" )
 rm -f "$t/sy/mavericks_fetch.sh"
 cat > "$t/sy/mavericks_fetch.sh" <<EOF
 shipyard_curl() { echo 0000; }
