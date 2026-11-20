@@ -78,11 +78,14 @@ linker = "/w/cc-arm64-pinned"'
 [ "$(sed -n '/^\[target\.aarch64-apple-darwin\]$/,/^\[/p' "$t/pinned/bootstrap.toml" | sed '/^\[/d; /^$/d')" = "$arm64_section" ] \
   || fail "ARM64_CC, ARM64_CXX and ARM64_LINKER must become [target.aarch64-apple-darwin] cc, cxx and linker, archived by clang22's llvm-ar (arm64 links record the pinned 11.3 SDK)"
 printf 'project(x)\n' > "$t/MavericksToolchain.cmake"
-write_arm64_cmake_toolchain "$t/arm.cmake" "$t/MavericksToolchain.cmake"
-[ "$(cat "$t/arm.cmake")" = "set(CMAKE_OSX_ARCHITECTURES \"arm64\")
-include(\"$t/MavericksToolchain.cmake\")" ] \
-  || fail "arm64 toolchain: shipyard's MavericksToolchain.cmake pins the 11.3 SDK and 11.0 floor for arm64, and on Linux clang22's Mach-O tools (got '$(cat "$t/arm.cmake")')"
-! write_arm64_cmake_toolchain "$t/arm2.cmake" "$t/absent.cmake" 2>/dev/null || fail "arm64 toolchain: a missing MavericksToolchain.cmake must be refused"
+write_arm64_cmake_toolchain "$t/arm.cmake" "$t/MavericksToolchain.cmake" /c
+grep -qx 'set(CMAKE_OSX_ARCHITECTURES "arm64")' "$t/arm.cmake" && [ "$(tail -n 1 "$t/arm.cmake")" = "include(\"$t/MavericksToolchain.cmake\")" ] \
+  || fail "arm64 toolchain: shipyard's MavericksToolchain.cmake pins the 11.3 SDK and 11.0 floor for arm64 (got '$(cat "$t/arm.cmake")')"
+for p in INSTALL_NAME_TOOL=llvm-install-name-tool STRIP=llvm-strip NM=llvm-nm; do
+  grep -qx "set(CMAKE_${p%%=*} \"/c/bin/${p#*=}\" CACHE FILEPATH \"clang22's ${p#*=}, which reads Mach-O\")" "$t/arm.cmake" \
+    || fail "arm64 toolchain: CMAKE_${p%%=*} is clang22's ${p#*=} on every host (the compiler is a wrapper, so MavericksToolchain.cmake finds no tools beside it, and a Linux PATH's are GNU's; got '$(cat "$t/arm.cmake")')"
+done
+! write_arm64_cmake_toolchain "$t/arm2.cmake" "$t/absent.cmake" /c 2>/dev/null || fail "arm64 toolchain: a missing MavericksToolchain.cmake must be refused"
 mkdir -p "$t/fc/bin"
 for d in clang clang++; do printf '#!/bin/sh\nprintf "%%s\\n" "$0" "$@"\n' > "$t/fc/bin/$d"; chmod +x "$t/fc/bin/$d"; done
 write_pinned_cc "$t/pcc" /sdk113 "$t/fc"

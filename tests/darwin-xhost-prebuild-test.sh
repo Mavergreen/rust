@@ -77,6 +77,8 @@ done
 grep -qx "TOOLCHAIN_ARM64=$W/aarch64-11.0.cmake" "$t/cross.env" \
   && grep -qx "include(\"$(cd -P "$t" && pwd)/MavericksToolchain.cmake\")" "$W/aarch64-11.0.cmake" \
   || fail "cross: the arm64 LLVM configures through shipyard's MavericksToolchain.cmake (got '$(cat "$W/aarch64-11.0.cmake" 2>/dev/null)')"
+grep -qF "set(CMAKE_INSTALL_NAME_TOOL \"$W/clang22-" "$W/aarch64-11.0.cmake" \
+  || fail "cross: the arm64 LLVM's install_name_tool is the build's clang22's on an Apple Silicon Mac too (got '$(cat "$W/aarch64-11.0.cmake")')"
 [ ! -e "$t/host-libcxx-called" ] || fail "a Mac build never fetches the Linux host libc++"
 [ ! -e "$t/work/work-native/stage0" ] || fail "native cross-hosted from a Mac uses bootstrap's own stage0"
 echo "OK darwin-xhost-prebuild-test"
