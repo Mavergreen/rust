@@ -10,6 +10,10 @@ write_bootstrap_toml() {
   # platform: bootstrap runs ccache as CMake's compiler launcher, and ccache cannot use LLVM 22's
   #           precompiled headers (built without -fno-pch-timestamp), so on Linux CI nothing caches
   _bcx=""; [ "$_build" != x86_64-unknown-linux-gnu ] || _bcx=', CMAKE_DISABLE_PRECOMPILE_HEADERS = "ON"'
+  if [ -n "${ARM64_CC:-}" ] && [ -z "${ARM64_CXX:-}" ]; then
+    echo "FATAL: ARM64_CC compiles C for aarch64-apple-darwin, and ARM64_CXX, its C++, is unset" >&2
+    return 1
+  fi
   if [ "$_build" = x86_64-unknown-linux-gnu ] && { [ -z "${LINUX_HOST_CC:-}" ] || [ -z "${LINUX_HOST_CXX:-}" ]; }; then
     echo "FATAL: a Linux build triple compiles with LINUX_HOST_CC and LINUX_HOST_CXX (linux_host_compilers), and one is unset" >&2
     return 1
@@ -80,7 +84,12 @@ EOF
         "$LINUX_HOST_CC" "$LINUX_HOST_CXX" "$_clang" "$_clang" "$LINUX_HOST_CXX"
     fi
     if [ -n "${ARM64_LINKER:-}" ]; then
-      printf '\n[target.aarch64-apple-darwin]\nlinker = "%s"\n' "$ARM64_LINKER"
+      printf '\n[target.aarch64-apple-darwin]\n'
+      if [ -n "${ARM64_CC:-}" ]; then
+        printf 'cc = "%s"\ncxx = "%s"\nar = "%s/bin/llvm-ar"\nranlib = "%s/bin/llvm-ranlib"\n' \
+          "$ARM64_CC" "$ARM64_CXX" "$_clang" "$_clang"
+      fi
+      printf 'linker = "%s"\n' "$ARM64_LINKER"
     fi
   } > "$_src/bootstrap.toml"
 }
@@ -97,10 +106,14 @@ EOF
 # platform: with llvm.use-libcxx rustc_llvm links -lc++, which must find the host libc++.a
 # platform: rustc links with -nodefaultlibs, which leaves -rtlib and --unwindlib unused, and bootstrap
 #           denies the linker warning (linker_messages)
+_print_link_scan() {
+  printf 'link=yes\nfor a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only|--version|-dumpversion|-dumpmachine|-print-*) link=no ;; esac; done\n'
+}
+
 _write_linux_host_compiler() {
   {
-    printf '#!/bin/sh\nunset SDKROOT\nlink=yes\n'
-    printf 'for a do case "$a" in -c|-E|-S|-M|-MM|-fsyntax-only|--version|-dumpversion|-dumpmachine|-print-*) link=no ;; esac; done\n'
+    printf '#!/bin/sh\nunset SDKROOT\n'
+    _print_link_scan
     printf '[ "$link" = no ] || exec %s %s -fuse-ld=lld -rtlib=libgcc --unwindlib=libgcc -Wno-unused-command-line-argument %s "$@" %s\n' "$2" "$3" "$4" "$5"
     printf 'exec %s %s "$@"\n' "$2" "$3"
   } > "$1"
@@ -133,6 +146,13 @@ cmake_shim_dir() {
   fi
   [ -x "$_cm" ] || { echo "FATAL: no shipyard-cmake at $_cm" >&2; return 1; }
   mkdir -p "$1"; ln -sfn "$_cm" "$1/cmake"; printf '%s\n' "$1"
+}
+
+# spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md Task 7 (shipyard) --
+#       shipyard's toolchain file pins arm64's 11.3 SDK and 11.0 floor, and on Linux clang22's Mach-O tools
+write_arm64_cmake_toolchain() {
+  [ -f "$2" ] || { echo "FATAL: no MavericksToolchain.cmake at $2" >&2; return 1; }
+  printf 'set(CMAKE_OSX_ARCHITECTURES "arm64")\ninclude("%s")\n' "$2" > "$1"
 }
 
 write_cmake_toolchain() {
@@ -175,8 +195,18 @@ populate_clang_sdk() {
   mkdir -p "$1/SDKs"; ln -sfn "$2" "$1/SDKs/MacOSX10.9.sdk"
 }
 
+# spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D5 (shipyard) --
+#       arm64 Darwin compiles and links run clang22 with no cfg, whose own is for x86_64 10.9
+# platform: rustc passes -isysroot with $SDKROOT's SDK (the 10.9 one on a Linux build) or xcrun's, and
+#           the last -isysroot wins, so the pinned 11.3 SDK and arm64 target follow the caller's arguments
 write_pinned_cc() {
-  printf '#!/bin/sh\nexec /usr/bin/clang -isysroot "%s" "$@"\n' "$2" > "$1"
+  _pf="--no-default-config --target=arm64-apple-macos11.0"
+  {
+    printf '#!/bin/sh\n'
+    _print_link_scan
+    printf '[ "$link" = no ] || exec %s "$@" %s -fuse-ld=lld -isysroot %s\n' "'$3/bin/${4:-clang}'" "$_pf" "'$2'"
+    printf 'exec %s "$@" %s -isysroot %s\n' "'$3/bin/${4:-clang}'" "$_pf" "'$2'"
+  } > "$1"
   chmod +x "$1"
 }
 
