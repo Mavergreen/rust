@@ -19,11 +19,17 @@ if [ -z "$pkg" ]; then
   mkdir -p "$pfx/bin" "$pfx/lib"
   for b in rustc rustc.bin clippy-driver clippy-driver.bin cargo; do printf '#!/bin/sh\n' > "$pfx/bin/$b"; chmod 755 "$pfx/bin/$b"; done
   printf 'x' > "$pfx/bin/._rustc"
-  ( MAVERICKS_WORK="$W"; RUST_VARIANT=native; export MAVERICKS_WORK RUST_VARIANT
-    . "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"
-    stage_stamp native > "$WORK/staged.stamp"
-    PKG_DIR="$D" MAVERICKS_BUILD_ROOT="$t/build" sh "$ROOT/build/package-native-pkg.sh" ) > "$t/package.log" 2>&1 \
-    || { tail -40 "$t/package.log"; fail "build/package-native-pkg.sh could not package the fixture stage"; }
+  package_fixture() {
+    ( MAVERICKS_WORK="$W"; RUST_VARIANT=native; export MAVERICKS_WORK RUST_VARIANT
+      . "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"
+      stage_stamp native > "$WORK/staged.stamp"
+      PKG_DIR="$D" MAVERICKS_BUILD_ROOT="$t/build" sh "$ROOT/build/package-native-pkg.sh" ) > "$t/package.log" 2>&1
+  }
+  if package_fixture; then fail "packaging a stage with no build-tools.txt must fail, not record this host's tools"; fi
+  rm -rf "$D"
+  printf '%s\n' build-host=x86_64-unknown-linux-gnu 'build-host-cmake=cmake version 3.28.3' build-host-ninja=1.11.1 \
+    'build-host-make=GNU Make 4.3' 'build-host-libc=glibc 2.39' 'build-host-python=Python 3.12.3' > "$W/work-native/stage/build-tools.txt"
+  package_fixture || { tail -40 "$t/package.log"; fail "build/package-native-pkg.sh could not package the fixture stage"; }
 fi
 n=0
 for pkg in "$D"/rust-[0-9]*.pkg "$D"/rust-cross-[0-9]*.pkg; do
@@ -52,19 +58,32 @@ for pkg in "$D"/rust-[0-9]*.pkg "$D"/rust-cross-[0-9]*.pkg; do
   done
 done
 [ "$n" -gt 0 ] || fail "no pkg to read"
-bi="$D/build-info-native.txt"
-if [ -f "$bi" ]; then
+for v in native cross; do
+  bi="$D/build-info-$v.txt"
+  case "$v" in native) p="$D"/rust-[0-9]*.pkg ;; cross) p="$D"/rust-cross-[0-9]*.pkg ;; esac
+  for f in $p; do [ ! -f "$f" ] || [ -f "$bi" ] || fail "$(basename "$f") has no build-info-$v.txt beside it"; done
+  [ -f "$bi" ] || continue
   key() { sed -n "s/^$1=//p" "$bi"; }
-  case "$(uname -s)/$(uname -m)" in
-    Linux/*) want=x86_64-unknown-linux-gnu ;;
-    Darwin/arm64) want=aarch64-apple-darwin ;;
-    *) want=x86_64-apple-darwin ;;
+  case "$(key build-host)" in
+    x86_64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-apple-darwin) ;;
+    *) fail "build-info-$v.txt records build-host='$(key build-host)', not a known build triple" ;;
   esac
-  [ "$(key build-host)" = "$want" ] || fail "build-info-native.txt records build-host='$(key build-host)', not $want"
   for k in build-host-make build-host-libc build-host-cmake; do
-    [ -n "$(key "$k")" ] || fail "build-info-native.txt has no $k"
+    [ -n "$(key "$k")" ] || fail "build-info-$v.txt has no $k"
   done
-elif [ -n "$fixture" ]; then
-  fail "packaging wrote no build-info-native.txt"
+  if [ -n "$fixture" ]; then sr="$W/work-$v/stage"; else sr="$(MAVERICKS_WORK="${MAVERICKS_WORK:-}" RUST_VARIANT=$v sh -c '. "$1/build/versions.sh"; printf "%s\n" "$WORK/stage"' sh "$ROOT")"; fi
+  [ -f "$sr/build-tools.txt" ] || continue
+  while IFS= read -r kv; do
+    k="${kv%%=*}"; want="$(printf '%s' "${kv#*=}" | tr -s '[:space:]' '_')"
+    [ "$(key "$k")" = "$want" ] || fail "build-info-$v.txt records $k='$(key "$k")', not the stage's '$want' ($sr/build-tools.txt)"
+  done < "$sr/build-tools.txt"
+done
+if [ -n "$fixture" ]; then
+  bi="$D/build-info-native.txt"
+  [ -f "$bi" ] || fail "packaging wrote no build-info-native.txt"
+  [ "$(sed -n 's/^build-host=//p' "$bi")" = x86_64-unknown-linux-gnu ] \
+    || fail "build-info records build-host='$(sed -n 's/^build-host=//p' "$bi")', not the Linux host the stage records"
+  [ -n "$(sed -n 's/^build-host-make=//p' "$bi")" ] && [ -n "$(sed -n 's/^build-host-libc=//p' "$bi")" ] \
+    || fail "a Linux-built stage's build-info has an empty build-host-make or build-host-libc"
 fi
 echo "OK pkg-payload-test ($n)"
