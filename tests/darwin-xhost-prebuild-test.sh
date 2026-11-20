@@ -13,6 +13,7 @@ V="$(tr -d ' \t\n' < "$ROOT/UPSTREAM_VERSION")"
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 mkdir -p "$t/sy" "$t/bin" "$t/c22/bin" "$t/c22/lib" "$t/sdk" "$t/sdk-arm64"
 for f in "$SHIPYARD_SCRIPTS"/*; do ln -s "$f" "$t/sy/"; done
+ln -s "$SHIPYARD_SCRIPTS/../MavericksToolchain.cmake" "$t/MavericksToolchain.cmake"
 stub() { rm -f "$1"; printf '#!/bin/sh\n%s\n' "$2" > "$1"; chmod +x "$1"; }
 stub "$t/bin/uname" 'case "$1" in -m) echo arm64 ;; -r) echo 25.0.0 ;; *) echo Darwin ;; esac'
 stub "$t/bin/sysctl" 'case "$*" in *hw.optional.arm64*) echo 1 ;; *hw.ncpu*) echo 8 ;; *hw.memsize*) echo 17179869184 ;; *) exit 1 ;; esac'
@@ -20,6 +21,8 @@ stub "$t/bin/python3" '{ echo "args=$*"; echo "SDKROOT=${SDKROOT-unset}"
   echo "RUSTFLAGS_X86=${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS-unset}"
   echo "CFLAGS_X86=${CFLAGS_x86_64_apple_darwin-unset}"
   echo "LINUX_HOST_CC=${LINUX_HOST_CC-unset}"; echo "CC=${CC-unset}"
+  echo "CFLAGS_ARM64=${CFLAGS_aarch64_apple_darwin-unset}"; echo "CXXFLAGS_ARM64=${CXXFLAGS_aarch64_apple_darwin-unset}"
+  echo "TOOLCHAIN_ARM64=${CMAKE_TOOLCHAIN_FILE_aarch64_apple_darwin-unset}"
   echo "CMAKE=$CMAKE"; } > "$CAPTURE"; cp bootstrap.toml "$CAPTURE.toml"; exit 3'
 for b in clang clang++ llvm-ar llvm-ranlib llvm-otool llvm-nm llvm-strings llvm-install-name-tool; do stub "$t/c22/bin/$b" 'exit 0'; done
 stub "$t/c22/bin/llvm-lipo" 'echo "Non-fat file: $2 is architecture: x86_64"'
@@ -59,7 +62,21 @@ for v in native cross; do
 done
 grep -q 'host = \["x86_64-apple-darwin"\]' "$t/native.env.toml" || fail "native: hosts x86_64-apple-darwin"
 grep -q 'host = \["aarch64-apple-darwin"\]' "$t/cross.env.toml" || fail "cross: hosts aarch64-apple-darwin"
-grep -qx '\[target.aarch64-apple-darwin\]' "$t/cross.env.toml" || fail "cross: names its pinned arm64 linker"
+W="$t/work/work-cross"
+sed -n '/^\[target\.aarch64-apple-darwin\]$/,/^\[/p' "$t/cross.env.toml" > "$t/cross.arm64"
+for l in "cc = \"$W/bin/cc-arm64-pinned\"" "cxx = \"$W/bin/c++-arm64-pinned\"" "linker = \"$W/bin/cc-arm64-pinned\""; do
+  grep -qxF "$l" "$t/cross.arm64" || fail "cross: [target.aarch64-apple-darwin] has $l (got '$(cat "$t/cross.arm64")')"
+done
+for w in cc-arm64-pinned c++-arm64-pinned; do
+  grep -q -- '--no-default-config' "$W/bin/$w" && grep -q -- "$W/clang22-" "$W/bin/$w" && ! grep -q /usr/bin/clang "$W/bin/$w" \
+    || fail "cross: $w runs the build's clang22 with no cfg, never /usr/bin/clang (got '$(cat "$W/bin/$w")')"
+done
+for x in CFLAGS_ARM64 CXXFLAGS_ARM64; do
+  grep "^$x=" "$t/cross.env" | grep -qF -- '--target=arm64-apple-macos11.0' || fail "cross: $x names --target=arm64-apple-macos11.0"
+done
+grep -qx "TOOLCHAIN_ARM64=$W/aarch64-11.0.cmake" "$t/cross.env" \
+  && grep -qx "include(\"$(cd -P "$t" && pwd)/MavericksToolchain.cmake\")" "$W/aarch64-11.0.cmake" \
+  || fail "cross: the arm64 LLVM configures through shipyard's MavericksToolchain.cmake (got '$(cat "$W/aarch64-11.0.cmake" 2>/dev/null)')"
 [ ! -e "$t/host-libcxx-called" ] || fail "a Mac build never fetches the Linux host libc++"
 [ ! -e "$t/work/work-native/stage0" ] || fail "native cross-hosted from a Mac uses bootstrap's own stage0"
 echo "OK darwin-xhost-prebuild-test"

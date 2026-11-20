@@ -37,4 +37,8 @@ linker = "/c/bin/clang++"
 rustflags = ["-Clink-arg=-mmacosx-version-min=10.9"]
 
 [target.aarch64-apple-darwin]
+cc = "/w/cc-arm64-pinned"
+cxx = "/w/c++-arm64-pinned"
+ar = "/c/bin/llvm-ar"
+ranlib = "/c/bin/llvm-ranlib"
 linker = "/w/cc-arm64-pinned"
