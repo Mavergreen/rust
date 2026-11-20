@@ -52,7 +52,7 @@ ARM_SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch arm64)"
 mkdir -p "$WORK/bin"
 write_pinned_cc "$WORK/bin/cc-arm64-pinned" "$ARM_SDK" "$CLANGDIR"
 write_pinned_cc "$WORK/bin/c++-arm64-pinned" "$ARM_SDK" "$CLANGDIR" clang++
-write_arm64_cmake_toolchain "$WORK/aarch64-11.0.cmake" "$(cd "$SHIPYARD_SCRIPTS/.." && pwd)/MavericksToolchain.cmake"
+write_arm64_cmake_toolchain "$WORK/aarch64-11.0.cmake" "$(cd "$SHIPYARD_SCRIPTS/.." && pwd)/MavericksToolchain.cmake" "$CLANGDIR"
 ARM64_CC="$WORK/bin/cc-arm64-pinned" ARM64_CXX="$WORK/bin/c++-arm64-pinned" ARM64_LINKER="$WORK/bin/cc-arm64-pinned" \
   write_bootstrap_toml "$SRC" "$CROSS_PREFIX" "$BUILD_TRIPLE" aarch64-apple-darwin "$CLANGDIR" $STAGE0
 pin_linux_build_sdk "$BUILD_TRIPLE" "$SDK"
