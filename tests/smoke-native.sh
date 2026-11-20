@@ -81,7 +81,7 @@ stage_is_current "$WORK_ROOT/work-native/staged.stamp" native \
   || { echo "the native stage is stale (build-native.sh again) -- skipping the on-box link"; exit 77; }
 c22="$WORK_ROOT/work-native/clang22-$(tr -d ' \t\n' < "$CLANG_PIN_FILE")/bin/clang++"
 [ -x "$c22" ] || fail "the build's clang22 is gone: $c22"
-sed -n '/^use std::collections/,/^}/p' "$HERE/smoke-target.sh" > "$t/smoke.rs"
+sed -n '/^use std::collections/,/^}/p' "$HERE/smoke-target-exec.sh" > "$t/smoke.rs"
 "$S/bin/rustc" -C linker="$c22" "$t/smoke.rs" -o "$t/smoke"
 out="$("$t/smoke")"
 [ "$out" = 'smoke Some(109) 42' ] || fail "native output: $out"

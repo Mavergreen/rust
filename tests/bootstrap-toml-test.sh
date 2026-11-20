@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 TARGET_TRIPLE=x86_64-apple-darwin; MACOS_MIN=10.9; REPO_ROOT="$ROOT"
 export TARGET_TRIPLE MACOS_MIN REPO_ROOT
 . "$ROOT/build/lib-rust.sh"
-unset MAVERICKS_USE_CCACHE
+unset MAVERICKS_USE_CCACHE ARM64_CC ARM64_CXX ARM64_LINKER
 t="$(mktemp -d "${TMPDIR:-/tmp}/bootstrap-toml.XXXXXX")"; trap 'rm -rf "$t"' EXIT
 fail() { echo "FAIL $1"; exit 1; }
 has() { grep -qF -- "$2" "$t/$1/bootstrap.toml" || fail "$1: missing '$2'"; }
@@ -68,15 +68,43 @@ d="$(PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_di
   || fail "cmake_shim_dir: bootstrap 1.95 has no [build] cmake key and runs 'cmake' from PATH, so the dir must hold cmake -> shipyard-cmake"
 ! ( PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" ) 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
 mkdir -p "$t/pinned"
-ARM64_LINKER=/w/cc-arm64-pinned write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c
-grep -A1 -x '\[target.aarch64-apple-darwin\]' "$t/pinned/bootstrap.toml" | grep -qx 'linker = "/w/cc-arm64-pinned"' \
-  || fail "ARM64_LINKER must become [target.aarch64-apple-darwin] linker (arm64 links record the pinned 11.3 SDK)"
-write_cmake_toolchain "$t/arm.cmake" /sdk113 11.0 arm64
-grep -qx 'set(CMAKE_OSX_SYSROOT "/sdk113")' "$t/arm.cmake" && grep -qx 'set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")' "$t/arm.cmake" \
-  && grep -qx 'set(CMAKE_OSX_ARCHITECTURES "arm64")' "$t/arm.cmake" \
-  || fail "arm64 toolchain: the aarch64 LLVM tools shipped minos 27.0 without one"
-write_pinned_cc "$t/pcc" /sdk113
-[ -x "$t/pcc" ] && grep -q 'exec /usr/bin/clang -isysroot "/sdk113" "\$@"' "$t/pcc" || fail "pinned cc wrapper"
+ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
+  write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c
+arm64_section='cc = "/w/cc-arm64-pinned"
+cxx = "/w/c++-arm64-pinned"
+ar = "/c/bin/llvm-ar"
+ranlib = "/c/bin/llvm-ranlib"
+linker = "/w/cc-arm64-pinned"'
+[ "$(sed -n '/^\[target\.aarch64-apple-darwin\]$/,/^\[/p' "$t/pinned/bootstrap.toml" | sed '/^\[/d; /^$/d')" = "$arm64_section" ] \
+  || fail "ARM64_CC, ARM64_CXX and ARM64_LINKER must become [target.aarch64-apple-darwin] cc, cxx and linker, archived by clang22's llvm-ar (arm64 links record the pinned 11.3 SDK)"
+printf 'project(x)\n' > "$t/MavericksToolchain.cmake"
+write_arm64_cmake_toolchain "$t/arm.cmake" "$t/MavericksToolchain.cmake"
+[ "$(cat "$t/arm.cmake")" = "set(CMAKE_OSX_ARCHITECTURES \"arm64\")
+include(\"$t/MavericksToolchain.cmake\")" ] \
+  || fail "arm64 toolchain: shipyard's MavericksToolchain.cmake pins the 11.3 SDK and 11.0 floor for arm64, and on Linux clang22's Mach-O tools (got '$(cat "$t/arm.cmake")')"
+! write_arm64_cmake_toolchain "$t/arm2.cmake" "$t/absent.cmake" 2>/dev/null || fail "arm64 toolchain: a missing MavericksToolchain.cmake must be refused"
+mkdir -p "$t/fc/bin"
+for d in clang clang++; do printf '#!/bin/sh\nprintf "%%s\\n" "$0" "$@"\n' > "$t/fc/bin/$d"; chmod +x "$t/fc/bin/$d"; done
+write_pinned_cc "$t/pcc" /sdk113 "$t/fc"
+write_pinned_cc "$t/pcxx" /sdk113 "$t/fc" clang++
+[ -x "$t/pcc" ] && [ -x "$t/pcxx" ] || fail "arm64 linker is clang22: write_pinned_cc must write executable wrappers"
+! grep -q /usr/bin/clang "$t/pcc" "$t/pcxx" || fail "arm64 linker is clang22: the wrappers must never name /usr/bin/clang"
+"$t/pcc" -arch arm64 -isysroot /sdk109 -o out in.o > "$t/pcc.link"
+"$t/pcxx" -c -isysroot /sdk109 -o out.o in.cpp > "$t/pcxx.compile"
+[ "$(sed -n 1p "$t/pcc.link")" = "$t/fc/bin/clang" ] || fail "arm64 linker is clang22: cc-arm64-pinned must exec \$CLANGDIR/bin/clang (got '$(sed -n 1p "$t/pcc.link")')"
+[ "$(sed -n 1p "$t/pcxx.compile")" = "$t/fc/bin/clang++" ] || fail "arm64 c++ is clang22: c++-arm64-pinned must exec \$CLANGDIR/bin/clang++"
+for f in --no-default-config --target=arm64-apple-macos11.0 -fuse-ld=lld; do
+  grep -qx -- "$f" "$t/pcc.link" || fail "arm64 linker is clang22: cc-arm64-pinned must pass $f"
+done
+[ "$(awk 'p { s = $0; p = 0 } $0 == "-isysroot" { p = 1 } END { print s }' "$t/pcc.link")" = /sdk113 ] \
+  || fail "arm64 linker is clang22: the last -isysroot must be the 11.3 SDK (rustc passes \$SDKROOT's, the 10.9 SDK on Linux, or xcrun's)"
+for f in --no-default-config --target=arm64-apple-macos11.0; do
+  grep -qx -- "$f" "$t/pcxx.compile" || fail "arm64 c++ is clang22: c++-arm64-pinned must pass $f"
+done
+[ "$(awk 'p { s = $0; p = 0 } $0 == "-isysroot" { p = 1 } END { print s }' "$t/pcxx.compile")" = /sdk113 ] \
+  || fail "arm64 c++ is clang22: a compile's last -isysroot must be the 11.3 SDK"
+! grep -qx -- -fuse-ld=lld "$t/pcxx.compile" \
+  || fail "arm64 c++ is clang22: a compile gets no -fuse-ld (CMake's flag checks read the unused-argument warning as a missing flag)"
 mkdir -p "$t/cc"
 MAVERICKS_USE_CCACHE=1 write_bootstrap_toml "$t/cc" /p aarch64-apple-darwin aarch64-apple-darwin /c
 grep -qx 'ccache = true' "$t/cc/bootstrap.toml" || fail "MAVERICKS_USE_CCACHE=1 must set [build] ccache = true (LLVM is most of a cold CI build)"
@@ -95,7 +123,8 @@ section() { sed -n "/^\\[target\\.$2\\]\$/,/^\\[/p" "$t/$1/bootstrap.toml" | sed
 mkdir -p "$t/lnative" "$t/lcross" "$t/ltar" "$t/lnocc"
 LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
   write_bootstrap_toml "$t/lnative" /usr/local/mavergreen/rust $L x86_64-apple-darwin /c /s0
-LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ ARM64_LINKER=/w/cc-arm64-pinned \
+LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
+  ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
   write_bootstrap_toml "$t/lcross" /usr/local/mavergreen/rust-cross $L aarch64-apple-darwin /c /s0
 LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
   write_bootstrap_toml "$t/ltar" /opt/mavergreen/rust $L $L /c /s0
@@ -108,8 +137,8 @@ hasnt lnative 'deny-warnings = false'
 has lcross 'host = ["aarch64-apple-darwin"]'
 has lcross 'target = ["aarch64-apple-darwin", "x86_64-apple-darwin"]'
 has lcross 'targets = "AArch64;X86"'
-[ "$(section lcross aarch64-apple-darwin)" = 'linker = "/w/cc-arm64-pinned"' ] \
-  || fail "lcross: [target.aarch64-apple-darwin] linker must be \$ARM64_LINKER (got '$(section lcross aarch64-apple-darwin)')"
+[ "$(section lcross aarch64-apple-darwin)" = "$arm64_section" ] \
+  || fail "lcross: [target.aarch64-apple-darwin] compiles and links with \$ARM64_CC, \$ARM64_CXX and \$ARM64_LINKER (got '$(section lcross aarch64-apple-darwin)')"
 has ltar 'host = ["x86_64-unknown-linux-gnu"]'
 has ltar 'target = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin"]'
 has ltar 'targets = "X86"'
