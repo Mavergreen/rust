@@ -29,7 +29,7 @@ fi
 echo "== fetch inputs =="
 mkdir -p "$WORK"
 C22="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR")"
-CLANGDIR="$(clang_work_copy "$C22")"; macho_tools
+CLANGDIR="$(clang_work_copy "$C22")"; export CLANGDIR; macho_tools
 RECAULK_A="$(fetch_recaulk)"
 MAKE_BIN="$(fetch_make)"
 SRC="$(sh "$HERE/fetch-rust-src.sh")"
