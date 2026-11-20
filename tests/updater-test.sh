@@ -2,7 +2,8 @@
 # platform: host-agnostic
 #   usage: tests/updater-test.sh
 #          Checks every updater build/build-updater.sh left under MAVERICKS_BUILD_ROOT. With none there,
-#          it builds the native one into a scratch build root and checks that.
+#          it builds the native one (and the arm64 cross one, where clang22 has AArch64) into a scratch
+#          build root and checks those.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 B="${MAVERICKS_BUILD_ROOT:-${TMPDIR:-/tmp}/mm-build}"
@@ -43,5 +44,11 @@ if [ "$n" -eq 0 ]; then
   app="$(MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" native 2> "$t/build.log")" \
     || { tail -40 "$t/build.log"; fail "build/build-updater.sh native did not build"; }
   n=1; check native rust-updater x86_64 10.9 dev.mavergreen.rust.rust.updater "$app"
+  # platform: 10.9's native clang22 has no AArch64 backend, so only another host builds the arm64 updater here
+  if "$CLANGDIR/bin/clang" --print-targets | grep -q aarch64; then
+    app="$(MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" cross 2> "$t/build.log")" \
+      || { tail -40 "$t/build.log"; fail "build/build-updater.sh cross did not build"; }
+    n=2; check cross rust-cross-updater arm64 11.0 dev.mavergreen.rust.rust-cross.updater "$app"
+  fi
 fi
 echo "OK updater-test ($n)"
