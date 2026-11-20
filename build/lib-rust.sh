@@ -372,6 +372,11 @@ if [ "\$wants" = 1 ]; then
     done
     [ -z "\$lp" ] || [ ! -d "\$(dirname "\$lp")/../SDKs/MacOSX10.9.sdk" ] || { SDKROOT="\$(dirname "\$lp")/../SDKs/MacOSX10.9.sdk"; export SDKROOT; }
   fi
+  # platform: rustc on a Linux host passes the linker no -isysroot, and clang22's cfg then names its own
+  #           SDKs/MacOSX10.9.sdk, which its Linux archive lacks; a gated wrapper hands on the caller's SDKROOT
+  if [ $_default = 0 ] && [ -n "\${SDKROOT:-}" ]; then
+    set -- -C link-arg=-isysroot -C "link-arg=\$SDKROOT" "\$@"
+  fi
   if [ "\$named" = 1 ]; then
     set -- -C "linker=\$linker" -C link-arg=-mmacosx-version-min=$MACOS_MIN "\$@"
   elif [ "\$defer" = 1 ]; then
