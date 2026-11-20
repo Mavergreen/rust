@@ -32,14 +32,16 @@ export NATIVE_SHORT="rust"
 export CROSS_SHORT="rust-cross"
 export NATIVE_PREFIX="/usr/local/mavergreen/$NATIVE_SHORT"
 export CROSS_PREFIX="/usr/local/mavergreen/$CROSS_SHORT"
+export LINUX_PREFIX="/opt/mavergreen/$NATIVE_SHORT"
 export NATIVE_IDENTIFIER="dev.mavergreen.rust.rust"
 export CROSS_IDENTIFIER="dev.mavergreen.rust.rust-cross"
 
 export WORK_ROOT="${MAVERICKS_WORK:-$HOME/.cache/mavergreen-rust}"
 export CROSS_STAGE_ROOT="$WORK_ROOT/work-cross/stage"
 export NATIVE_STAGE_ROOT="$WORK_ROOT/work-native/stage"
+export LINUX_STAGE_ROOT="$WORK_ROOT/work-linux/stage"
 case "${RUST_VARIANT:-}" in
-  cross|native) export WORK="$WORK_ROOT/work-$RUST_VARIANT" ;;
+  cross|native|linux) export WORK="$WORK_ROOT/work-$RUST_VARIANT" ;;
   "") unset WORK ;;
-  *) echo "versions.sh: RUST_VARIANT must be cross or native (got '$RUST_VARIANT')" >&2; exit 1 ;;
+  *) echo "versions.sh: RUST_VARIANT must be cross, native or linux (got '$RUST_VARIANT')" >&2; exit 1 ;;
 esac

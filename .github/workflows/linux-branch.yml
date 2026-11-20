@@ -232,6 +232,11 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      MAVERICKS_USE_CCACHE: "1"
+      # platform: the build triple's compilers are wrapper scripts whose flags --version cannot see;
+      #           content hashes the wrapper itself, which the build writes byte-identically each run
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
@@ -254,6 +259,7 @@ jobs:
           done
           w="${best%/}/mavergreen-rust"
           sudo mkdir -p "$w/home" && sudo chown -R "$(id -u):$(id -g)" "$w"
+          mkdir -p "$HOME/.cache/ccache"
           echo "MAVERICKS_WORK=$w" >> "$GITHUB_ENV"
           echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
           echo "work on $w ($((bestk / 1048576)) GB free)"
@@ -270,8 +276,55 @@ jobs:
           s="$(cd -P "$SHIPYARD_SCRIPTS" && pwd)"
           {
             echo "SHIPYARD_REAL=$s"
-            echo "DOCKER_MOUNTS=-v $GITHUB_WORKSPACE:$GITHUB_WORKSPACE -v $(dirname "$s"):$(dirname "$s"):ro -v $MAVERICKS_WORK:$MAVERICKS_WORK -w $GITHUB_WORKSPACE"
+            echo "DOCKER_MOUNTS=-v $GITHUB_WORKSPACE:$GITHUB_WORKSPACE -v $(dirname "$s"):$(dirname "$s"):ro -v $MAVERICKS_WORK:$MAVERICKS_WORK -v $CCACHE_DIR:$CCACHE_DIR -w $GITHUB_WORKSPACE"
           } >> "$GITHUB_ENV"
+          docker build -q --build-arg BASE=clang22-linux-base -t rust-linux-build build/linux
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-hosted-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh', 'build/linux/Dockerfile') }}
+          restore-keys: ccache-linux-hosted-
+      - name: Build
+        id: build
+        run: |
+          date -u +%s > "$RUNNER_TEMP/start"
+          ( while :; do df -Pk "$MAVERICKS_WORK" | awk 'NR == 2 { print $3 }' >> "$RUNNER_TEMP/disk-used"; sleep 60; done ) &
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e MAVERICKS_USE_CCACHE -e CCACHE_COMPILERCHECK -e CCACHE_DIR \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            rust-linux-build sh -c 'ccache -z && sh build/build-linux.sh' 2>&1 | tee "$RUNNER_TEMP/build-linux.log"
+      - name: Package
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_MOUNTS \
+            -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
+            -e GITHUB_EVENT_NAME -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            rust-linux-build sh build/package-linux.sh 2>&1 | tee "$RUNNER_TEMP/package-linux.log"
+      - name: Save ccache even when the build fails
+        if: ${{ always() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-hosted-${{ hashFiles('UPSTREAM_VERSION', 'components/**', '!components/longboat/**', 'build/lib-rust.sh', 'build/build-*.sh', 'build/linux/Dockerfile') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Wall time, ccache and disk
+        if: always()
+        run: |
+          [ ! -f "$RUNNER_TEMP/start" ] || echo "build wall time: $(( ($(date -u +%s) - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$CCACHE_DIR:$CCACHE_DIR" -e CCACHE_DIR rust-linux-build ccache -sv || true
+          du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+          [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+          du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+          df -h / /mnt
+      # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md "Review Focus" (shipyard) -- rustc's Apple-target links get their SDK and linker from us
+      - name: The build and the packager ran no xcrun, /usr/bin/clang or pkgutil
+        run: |
+          for l in build-linux package-linux; do
+            if grep -nE 'xcrun|/usr/bin/clang|pkgutil' "$RUNNER_TEMP/$l.log"; then
+              echo "::error::the $l log names xcrun, /usr/bin/clang or pkgutil"; exit 1
+            fi
+            echo "no xcrun, /usr/bin/clang or pkgutil in $(wc -l < "$RUNNER_TEMP/$l.log") $l log lines"
+          done
       - name: Smoke on clang-22's base image
         run: |
           tb="$(echo "$GITHUB_WORKSPACE"/dist/rust-*-linux-x86_64.tar.gz)"
@@ -279,3 +332,17 @@ jobs:
             -e SHIPYARD_SCRIPTS="$SHIPYARD_REAL" -e MAVERICKS_WORK -e HOME="$MAVERICKS_WORK/home" \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
             clang22-linux-base sh tests/linux-smoke.sh "$tb" 2>&1 | tee "$RUNNER_TEMP/linux-smoke.log"
+      - name: Pack the tarball and the logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$RUNNER_TEMP"/*-linux.log "$RUNNER_TEMP/linux-smoke.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          w="$MAVERICKS_WORK/work-linux"
+          cp dist/rust-*-linux-x86_64.tar.gz dist/build-info-linux.txt "$w/staged.stamp" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          find "$w" -path '*/CMakeFiles/CMakeConfigureLog.yaml' -o -path '*/CMakeFiles/CMakeError.log' -o -name bootstrap.toml 2>/dev/null \
+            | tar -czf "$RUNNER_TEMP/out/build-logs.tar.gz" -T - 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: build-linux
+          path: ${{ runner.temp }}/out
