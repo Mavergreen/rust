@@ -9,7 +9,9 @@ built with.
 | Rust source (own upstream) | `UPSTREAM_VERSION` | ✅ `github-releases` on `rust-lang/rust` | cuts `<ver>-mavericks.1` |
 | clang-22 (shipyard's `fetch_clang22.sh`: the cross pkg on a modern Mac, the native pkg on 10.9, the Linux archive on Linux) | `components/clang22/version`, plus the Linux archive's digest in `components/clang22/linux-sha256` | ✅ `github-releases` on `Mavergreen/clang-22`, `-mavericks.N` versioning; the pins bot (`.github/workflows/pins-bot.yml`) verifies the new release's Linux archive against its `SHA256SUMS` and writes `linux-sha256` on Renovate's branch | repackage → `-mavericks.(N+1)` |
 | Recaulk (prebuilt `librecaulk.a`, the 10.9 back-fills) | `components/recaulk/version` | ✅ shipyard preset manager → `github-releases` on `Mavergreen/recaulk` | repackage |
-| GNU make (builds cargo's vendored OpenSSL) | `components/make/version` | ✅ `github-releases` on `Mavergreen/make`, `-mavericks.N` versioning | repackage |
+| GNU make (builds cargo's vendored OpenSSL on a Mac) | `components/make/version` | ✅ `github-releases` on `Mavergreen/make`, `-mavericks.N` versioning | repackage |
+| Linux host CMake, Ninja and GNU make (configure and drive the Linux-hosted build of the native toolchain and its updater; make also builds cargo's vendored OpenSSL there) | runner-provided (`ubuntu-latest`, ninja from apt's `ninja-build`), unpinned; `build-info-*.txt` records each `--version` (`build-host-cmake`, `build-host-ninja`, `build-host-make`), with the host's libc (`build-host-libc`) and python (`build-host-python`) | ❌ **untrackable**: the runner image provides them, so no pin exists to track. Exit: when shipyard pins cmake, ninja and make for Linux hosts as it pins them for a Mac, take those | none; a runner image update can change them |
+| Linux host libc++ and libc++abi (the C++ library of the Linux-hosted build's own compilers and LLVM: shipyard's `fetch_host_libcxx.sh`, static, built by clang22 from the llvm-project source its pin is built from) | `components/clang22/llvm-project` (`LLVM_VERSION SHA256` of `llvm-project-<v>.src.tar.xz`), which must agree with `components/clang22/version` | ❌ **untrackable** by a bot: it must name the LLVM release clang22 is built from, which `fetch_host_libcxx.sh` enforces, so it moves by hand with a clang22 LLVM bump | none: nothing it builds ships. Exit: when clang-22 ships a Linux-host libc++, take it from the pinned archive and drop `llvm-project` |
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
@@ -63,10 +65,14 @@ build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of
 
 - **python3** runs `x.py`, Rust's own build driver. On 10.9 it comes from pkgsrc (`/opt/pkg`); see the
   deviation below.
-- **ninja** comes from pkgsrc on both build hosts. **Exit:** switch to the family's own when
-  `mavergreen-ninja` ships.
-- **CMake** is `shipyard-cmake`. Bootstrap 1.95 has no `[build] cmake` key, so `cmake_shim_dir` puts a
-  `cmake -> shipyard-cmake` link first on `PATH` for `x.py`.
+- **ninja** comes from pkgsrc on a Mac and from the runner on Linux (see the table above). **Exit:**
+  switch to the family's own when `mavergreen-ninja` ships.
+- **CMake** is `shipyard-cmake` on a Mac and the runner's `cmake` on Linux. Bootstrap 1.95 has no
+  `[build] cmake` key, so `cmake_shim_dir` puts a `cmake` link to it first on `PATH` for `x.py`, and
+  `build-info-*.txt` records its `--version` as `build-host-cmake`.
+- **The packager and the updater** run on either host: the pkg is written by shipyard's stevedore
+  (`build_component_pkg.sh`, `set_install_floor.sh`), and the Sparkle updater is compiled by the pinned
+  clang22 for its floor (x86_64 10.9, arm64 11.0), not by Apple's clang.
 - A pkgsrc toolchain on the build host must never leak into the product. The guards are
   `CMAKE_IGNORE_PREFIX_PATH` plus optional LLVM deps off, and `PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig`
   for cargo's `*-sys` crates. `build/verify-relocatable.sh` fails the build if anything leaks anyway.
