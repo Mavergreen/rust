@@ -17,6 +17,8 @@ else
   SYCM="$(command -v shipyard-cmake || echo /usr/local/mavergreen/bin/shipyard-cmake)"
 fi
 CL="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$ROOT/components/clang22")"
+LIPO="$CL/bin/llvm-lipo"; OTOOL="$CL/bin/llvm-otool"; NM="$CL/bin/llvm-nm"; STRINGS="$CL/bin/llvm-strings"
+export LIPO OTOOL NM STRINGS
 sy="$(dirname "$SHIPYARD_SCRIPTS")"
 rm -rf "$B"
 "$SYCM" -S "$ROOT" -B "$B" -DRUST_VARIANT="$v" -DCMAKE_OSX_ARCHITECTURES="$arch" \
