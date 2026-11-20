@@ -202,4 +202,12 @@ case "$out" in "STUB -C linker=$t/unpacked/clang22/bin/clang++ "*) : ;; *) fail 
 rm -rf "$t/inst/clang22"
 if out="$("$t/inst/rust/bin/rustc" x.rs 2>&1)"; then fail "case 35 an installed rust with no clang22 must fail: $out"; fi
 case "$out" in "rustc: no clang22 next to rust or installed (looked in $t/inst/rust/deps/clang22/bin/clang++ and $t/inst/clang22/bin/clang++); "*) : ;; *) fail "case 35 an installed rust's message names the installed clang22 once: $out" ;; esac
+out="$(SDKROOT=/the/sdk "$t/cross/bin/rustc" --target x86_64-apple-darwin -C linker="$C22" x.rs)"
+case "$out" in "STUB "*"-C link-arg=-isysroot -C link-arg=/the/sdk "*) : ;; *) fail "case 36 a gated wrapper hands the caller's SDKROOT to the linker as -isysroot: on Linux rustc passes none, and clang22's cfg would name its own absent SDKs/: $out" ;; esac
+out="$(env -u SDKROOT "$t/cross/bin/rustc" --target x86_64-apple-darwin -C linker="$C22" x.rs)"
+case "$out" in *isysroot*) fail "case 36 with no SDKROOT the gated wrapper adds no -isysroot: $out" ;; esac
+out="$(SDKROOT=/the/sdk "$t/cross/bin/rustc" --target aarch64-apple-darwin x.rs)"
+case "$out" in *isysroot*) fail "case 36 an arm64 link keeps rustc's own SDK handling: $out" ;; esac
+out="$(SDKROOT=/the/sdk "$t/native/bin/rustc" x.rs)"
+case "$out" in *isysroot*) fail "case 36 the native wrapper is unchanged: rustc on 10.9 passes SDKROOT itself: $out" ;; esac
 echo "OK wrapper-test"
