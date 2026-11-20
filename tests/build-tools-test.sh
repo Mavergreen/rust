@@ -44,4 +44,10 @@ chmod +x "$t/pinned/make" "$t/pinned/cmake"; : > "$t/info3"
 grep -qx 'build-host=x86_64-apple-darwin' "$t/info3" || fail "a 10.9 build host is x86_64-apple-darwin"
 grep -qx 'build-host-make=GNU Make 4.4.1' "$t/info3" || fail "on a Mac build-host-make is \$MAKE's (got '$(grep make "$t/info3")')"
 grep -qx 'build-host-cmake=cmake version 4.4.5' "$t/info3" || fail "on a Mac build-host-cmake is \$CMAKE's"
+grep -q 'record_build_tools "$NATIVE_STAGE_ROOT/build-tools.txt"' "$ROOT/build/build-native.sh" \
+  || fail "build-native.sh records its build tools in \$NATIVE_STAGE_ROOT/build-tools.txt, beside the stage it built"
+grep -q 'record_build_tools "$STAGE_ROOT/build-tools.txt"' "$ROOT/build/build-cross.sh" \
+  || fail "build-cross.sh records its build tools in \$STAGE_ROOT/build-tools.txt, beside the stage it built"
+body="$(sed -n '/^package_variant() {/,/^}/p' "$ROOT/build/package-lib.sh")"
+case "$body" in *record_build_tools*|*fetch_make*|*cmake_shim_dir*) fail "packaging re-records build tools: it must read the stage's build-tools.txt" ;; esac
 echo "OK build-tools-test"
