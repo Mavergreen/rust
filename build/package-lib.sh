@@ -1,5 +1,6 @@
-# platform: macOS-only -- ditto, pkgbuild, productbuild
+# platform: host-agnostic
 #   usage: . build/package-lib.sh; package_variant native|cross
+#          Writes the pkg and build-info-<variant>.txt to PKG_DIR (default dist/).
 # spec: INGREDIENTS.md "The default linker" -- the native pkg's rustc links with clang22 by
 #       default, so its preinstall refuses a box without clang22 (shipyard vision area 7's tool kind)
 variant_requires() { case "$1" in native) echo clang22 ;; esac; }
@@ -21,24 +22,27 @@ package_variant() {
     || { echo "FATAL: the $v stage is stale or unfinished (no current $WORK/staged.stamp): build-$v.sh again" >&2; exit 1; }
   VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")")"
   pr="$WORK/pkgroot"; scr="$WORK/pkg-scripts"; comp="$WORK/$short-component.pkg"
-  rm -rf "$pr" "$scr"; mkdir -p "$pr$(dirname "$prefix")" "$REPO_ROOT/dist"
-  # platform: macOS stamps an undeletable com.apple.provenance on every file a tracked process
-  #           writes, and pkgbuild records it as a ._X member; --noextattr drops only the others
-  ditto --norsrc --noextattr --noacl "$sroot$prefix" "$pr$prefix"
+  dist="${PKG_DIR:-$REPO_ROOT/dist}"
+  rm -rf "$pr" "$scr"; mkdir -p "$pr$(dirname "$prefix")" "$dist"
+  cp -pR "$sroot$prefix" "$pr$prefix"
+  find "$pr" -name '._*' -delete
   app="$(sh "$REPO_ROOT/build/build-updater.sh" "$v")"
   set -- --stage "$pr" --product "$short" --name "Rust for Mavericks" --group rust \
     --version "$VER" --exclude bin/rustc.bin --exclude bin/clippy-driver.bin --scripts-out "$scr" --updater-app "$app"
   if [ -n "$line" ]; then set -- "$@" --line "$line"; fi
   for _r in $(variant_requires "$v"); do set -- "$@" --requires "$_r"; done
-  find "$pr" -name '._*' -delete
   sh "$SHIPYARD_SCRIPTS/stage_product.sh" "$@"
-  pkgbuild --root "$pr" --identifier "$id" --version "$VER" --scripts "$scr" --install-location / "$comp"
-  out="$REPO_ROOT/dist/$short-$VER.pkg"
+  sh "$SHIPYARD_SCRIPTS/build_component_pkg.sh" --root "$pr" --identifier "$id" --version "$VER" \
+    --scripts "$scr" --install-location / --out "$comp" > /dev/null
+  out="$dist/$short-$VER.pkg"
   sh "$SHIPYARD_SCRIPTS/set_install_floor.sh" --identifier "$id" \
     --title "Rust for Mavericks $VER$title_tail" --component "$comp" --out "$out" $floor --require-scripts
-  rm -f "$comp"
-  sh "$SHIPYARD_SCRIPTS/build-info.sh" "$REPO_ROOT/dist/build-info-$v.txt" \
-    variant="$v" arch="$arch" prefix="$prefix" pkg="$(basename "$out")" identifier="$id" \
+  rm -f "$comp" "$WORK/build-tools.txt"
+  MAKE="$(fetch_make)/make"; CMAKE="$(cmake_shim_dir "$WORK/cmake-bin")/cmake"
+  record_build_tools "$WORK/build-tools.txt"
+  set -- variant="$v" arch="$arch" prefix="$prefix" pkg="$(basename "$out")" identifier="$id" \
     rust="$RUST_VERSION" clang="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" recaulk="$RECAULK_VERSION" make="$MAKE_VERSION" target="$TARGET_TRIPLE"
+  while IFS= read -r _kv; do set -- "$@" "$_kv"; done < "$WORK/build-tools.txt"
+  sh "$SHIPYARD_SCRIPTS/build-info.sh" "$dist/build-info-$v.txt" "$@"
   echo "built $out"
 }
