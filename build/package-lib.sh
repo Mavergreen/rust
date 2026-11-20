@@ -20,6 +20,8 @@ package_variant() {
   [ -x "$sroot$prefix/bin/rustc.bin" ] || { echo "FATAL: $v not staged at $sroot$prefix" >&2; exit 1; }
   stage_is_current "$WORK/staged.stamp" "$v" \
     || { echo "FATAL: the $v stage is stale or unfinished (no current $WORK/staged.stamp): build-$v.sh again" >&2; exit 1; }
+  [ -s "$sroot/build-tools.txt" ] \
+    || { echo "FATAL: the $v stage has no $sroot/build-tools.txt recording what built it: build-$v.sh again" >&2; exit 1; }
   VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")")"
   pr="$WORK/pkgroot"; scr="$WORK/pkg-scripts"; comp="$WORK/$short-component.pkg"
   dist="${PKG_DIR:-$REPO_ROOT/dist}"
@@ -37,12 +39,10 @@ package_variant() {
   out="$dist/$short-$VER.pkg"
   sh "$SHIPYARD_SCRIPTS/set_install_floor.sh" --identifier "$id" \
     --title "Rust for Mavericks $VER$title_tail" --component "$comp" --out "$out" $floor --require-scripts
-  rm -f "$comp" "$WORK/build-tools.txt"
-  MAKE="$(fetch_make)/make"; CMAKE="$(cmake_shim_dir "$WORK/cmake-bin")/cmake"
-  record_build_tools "$WORK/build-tools.txt"
+  rm -f "$comp"
   set -- variant="$v" arch="$arch" prefix="$prefix" pkg="$(basename "$out")" identifier="$id" \
     rust="$RUST_VERSION" clang="$(tr -d ' \t\n' < "$CLANG_PIN_FILE")" recaulk="$RECAULK_VERSION" make="$MAKE_VERSION" target="$TARGET_TRIPLE"
-  while IFS= read -r _kv; do set -- "$@" "$_kv"; done < "$WORK/build-tools.txt"
+  while IFS= read -r _kv; do set -- "$@" "$_kv"; done < "$sroot/build-tools.txt"
   sh "$SHIPYARD_SCRIPTS/build-info.sh" "$dist/build-info-$v.txt" "$@"
   echo "built $out"
 }

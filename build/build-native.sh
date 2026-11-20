@@ -65,5 +65,7 @@ prune_proc_macro_dylibs "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
 guard_prefix "$STAGE"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
+( PATH="$MAKE_BIN:$CMAKE_BIN:$PATH"; MAKE="$MAKE_BIN/make"; CMAKE="$CMAKE_BIN/cmake"
+  record_build_tools "$NATIVE_STAGE_ROOT/build-tools.txt" )
 stage_stamp native > "$WORK/staged.stamp"
 echo ">> native ($MODE) staged at $STAGE"

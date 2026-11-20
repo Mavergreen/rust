@@ -72,6 +72,8 @@ relocate_prefix "$STAGE" "$CLANGDIR"
 
 guard_prefix "$STAGE"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
+( PATH="$MAKE_BIN:$CMAKE_BIN:$PATH"; MAKE="$MAKE_BIN/make"; CMAKE="$CMAKE_BIN/cmake"
+  record_build_tools "$STAGE_ROOT/build-tools.txt" )
 stage_stamp cross > "$WORK/staged.stamp"
 echo ">> staged cross toolchain at $STAGE"
 "$STAGE/bin/rustc" --version
