@@ -41,12 +41,12 @@ EOF
   n=$((n+1)); check "$var" "$name" "$arch" "$min" "$bid" "$app"
 done
 if [ "$n" -eq 0 ]; then
-  app="$(MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" native 2> "$t/build.log")" \
+  app="$(unset LIPO OTOOL NM STRINGS; MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" native 2> "$t/build.log")" \
     || { tail -40 "$t/build.log"; fail "build/build-updater.sh native did not build"; }
   n=1; check native rust-updater x86_64 10.9 dev.mavergreen.rust.rust.updater "$app"
   # platform: 10.9's native clang22 has no AArch64 backend, so only another host builds the arm64 updater here
   if "$CLANGDIR/bin/clang" --print-targets | grep -q aarch64; then
-    app="$(MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" cross 2> "$t/build.log")" \
+    app="$(unset LIPO OTOOL NM STRINGS; MAVERICKS_BUILD_ROOT="$t" sh "$ROOT/build/build-updater.sh" cross 2> "$t/build.log")" \
       || { tail -40 "$t/build.log"; fail "build/build-updater.sh cross did not build"; }
     n=2; check cross rust-cross-updater arm64 11.0 dev.mavergreen.rust.rust-cross.updater "$app"
   fi
