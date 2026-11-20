@@ -33,13 +33,18 @@ echo "$out" | grep -qx "FULL=$U-mavericks.4" || { echo "FAIL local FULL: $out"; 
     || { echo "FAIL MAKE_VERSION must come from components/make/version (release-state reads whole files)"; exit 1; }
   case "$CROSS_STAGE_ROOT" in */work-cross/stage) : ;; *) echo "FAIL CROSS_STAGE_ROOT=$CROSS_STAGE_ROOT"; exit 1 ;; esac
   case "$NATIVE_STAGE_ROOT" in */work-native/stage) : ;; *) echo "FAIL NATIVE_STAGE_ROOT=$NATIVE_STAGE_ROOT"; exit 1 ;; esac
+  case "$LINUX_STAGE_ROOT" in */work-linux/stage) : ;; *) echo "FAIL LINUX_STAGE_ROOT=$LINUX_STAGE_ROOT"; exit 1 ;; esac
+  [ "$LINUX_PREFIX" = /opt/mavergreen/rust ] || { echo "FAIL LINUX_PREFIX=$LINUX_PREFIX (D7: the tarball is laid out under opt/mavergreen/rust, fetch_product_tar.sh's contract)"; exit 1; }
   [ -z "${WORK:-}" ] || { echo "FAIL WORK must be unset without RUST_VARIANT, so no script shares one work dir by accident"; exit 1; }
 ) || exit 1
 ( RUST_VARIANT=native; . "$ROOT/build/versions.sh"
   case "$WORK" in */work-native) : ;; *) echo "FAIL WORK=$WORK for RUST_VARIANT=native"; exit 1 ;; esac
 ) || exit 1
+( RUST_VARIANT=linux; . "$ROOT/build/versions.sh"
+  case "$WORK" in */work-linux) : ;; *) echo "FAIL WORK=$WORK for RUST_VARIANT=linux"; exit 1 ;; esac
+) || exit 1
 [ ! -e "$ROOT/build/fetch-clang.sh" ] || { echo "FAIL build/fetch-clang.sh is retired: shipyard's fetch_clang22.sh fetches clang22 for every host"; exit 1; }
-for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh; do
+for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh "$ROOT"/build/build-linux.sh; do
   grep -qF 'sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" "$CLANG_PIN_DIR"' "$f" \
     || { echo "FAIL ${f#"$ROOT"/} takes clang22 from shipyard's fetch_clang22.sh, which verifies it for this host (the native pkg on 10.9)"; exit 1; }
 done
@@ -47,7 +52,7 @@ done
   [ "$CLANG_PIN_DIR" = "$ROOT/components/clang22" ] || { echo "FAIL CLANG_PIN_DIR=$CLANG_PIN_DIR, not components/clang22"; exit 1; }
   [ "$CLANG_PIN_FILE" = "$CLANG_PIN_DIR/version" ] || { echo "FAIL CLANG_PIN_FILE=$CLANG_PIN_FILE, not \$CLANG_PIN_DIR/version"; exit 1; }
 ) || exit 1
-for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh; do
+for f in "$ROOT"/build/build-native.sh "$ROOT"/build/build-cross.sh "$ROOT"/build/build-linux.sh; do
   grep -q 'PATH="$MAKE_BIN:' "$f" || { echo "FAIL ${f#"$ROOT"/} puts the family make first on x.py's PATH: openssl-src runs a bare make, which on 10.9 is a Command Line Tools stub"; exit 1; }
 done
 for f in "$ROOT"/build/fetch-*.sh; do
