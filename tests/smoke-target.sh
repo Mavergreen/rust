@@ -14,8 +14,8 @@ t="$(cd -P "$(mktemp -d "${TMPDIR:-/tmp}/smoke-target.XXXXXX")" && pwd)"; trap '
 fail() { echo "FAIL $1"; exit 1; }
 
 minos_sdk() {
-  "$OTOOL" -l "$1" | awk '$1 == "cmd" { r = ($2 == "LC_VERSION_MIN_MACOSX" || $2 == "LC_BUILD_VERSION") }
-    r && ($1 == "version" || $1 == "minos") { m = $2 } r && $1 == "sdk" { s = $2 } END { print m " " s }'
+  "$OTOOL" -l "$1" | awk '$1 == "cmd" { v = ($2 == "LC_VERSION_MIN_MACOSX"); b = ($2 == "LC_BUILD_VERSION") }
+    (v && $1 == "version") || (b && $1 == "minos") { m = $2 } (v || b) && $1 == "sdk" { s = $2 } END { print m " " s }'
 }
 audit() {
   for _t in rustc cargo rustdoc clippy-driver cargo-clippy rustfmt cargo-fmt; do
