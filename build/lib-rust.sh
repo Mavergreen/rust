@@ -199,12 +199,18 @@ populate_clang_sdk() {
 #       arm64 Darwin compiles and links run clang22 with no cfg, whose own is for x86_64 10.9
 # platform: rustc passes -isysroot with $SDKROOT's SDK (the 10.9 one on a Linux build) or xcrun's, and
 #           the last -isysroot wins, so the pinned 11.3 SDK and arm64 target follow the caller's arguments
+# platform: clang22's own libc++ headers come before the SDK's, and are libc++ 22's, whose inline code calls
+#           what macOS 11's libc++.dylib lacks; C++ reads the SDK's, as Apple's clang does
 write_pinned_cc() {
   _pf="--no-default-config --target=arm64-apple-macos11.0"
+  _lw=""
+  if [ "${4:-clang}" = clang++ ]; then
+    _pf="$_pf -nostdinc++ -isystem '$2/usr/include/c++/v1'"; _lw=" -Wno-unused-command-line-argument"
+  fi
   {
     printf '#!/bin/sh\n'
     _print_link_scan
-    printf '[ "$link" = no ] || exec %s "$@" %s -fuse-ld=lld -isysroot %s\n' "'$3/bin/${4:-clang}'" "$_pf" "'$2'"
+    printf '[ "$link" = no ] || exec %s "$@" %s -fuse-ld=lld%s -isysroot %s\n' "'$3/bin/${4:-clang}'" "$_pf" "$_lw" "'$2'"
     printf 'exec %s "$@" %s -isysroot %s\n' "'$3/bin/${4:-clang}'" "$_pf" "'$2'"
   } > "$1"
   chmod +x "$1"
