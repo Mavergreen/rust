@@ -59,6 +59,13 @@ stress() {
 explicit_cc() {
   write_smoke && L "cd '$w' && rustc -C linker=cc smoke.rs -o smoke-cc" && [ "$("$w/smoke-cc")" = 'smoke Some(109) 42' ]
 }
+main_stack() {
+  printf '%s\n' '#[inline(never)] fn deep(n: usize) -> usize { let a = std::hint::black_box([n as u8; 1 << 20]); a.len() + a[n % 7] as usize }' \
+    'fn main() { println!("main stack {}", deep(0)); }' > "$w/deep.rs"
+  L "cd '$w' && rustc -C opt-level=0 deep.rs -o deep" \
+    && { _out="$("$w/deep" 2>&1)"; [ "$_out" = 'main stack 1048576' ] \
+      || { echo "a 1 MB frame on the main thread printed '$_out': 10.9 reports a 512 KB main stack, and std must not put its guard page there"; return 1; }; }
+}
 crates_io() { L "cd '$w' && cargo new -q dep && cd dep && cargo add -q itoa@1 && cargo build -q"; }
 write_ws() {
   mkdir -p "$w/ws/app/src" "$w/ws/pm/src"
@@ -151,6 +158,7 @@ step clang22 clang22
 step install install_pkg
 step versions versions
 step stress-program stress
+step main-thread-stack main_stack
 step crates-io crates_io
 step clippy-proc-macro-build-rs-doctest clippy_ws
 step link-clang22 link_clang22
