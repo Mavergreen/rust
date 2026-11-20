@@ -1,7 +1,7 @@
 #!/bin/sh
 # platform: host-agnostic
 #   usage: fetch-rust-src.sh     prints the extracted source tree (holds x.py); verified
-#          against static.rust-lang.org's own .sha256 for the pinned version
+#          against static.rust-lang.org's own .sha256 for the pinned version, then patches/ applied
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"; . "$HERE/msc.sh"; . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
@@ -15,4 +15,5 @@ shipyard_fetch_verified "$RUST_SRC_URL" "$want" "$CACHE" "${tarball##*/}" \
 rm -rf "$OUT"
 tar -xf "$tarball" -C "$WORK"
 [ -f "$OUT/x.py" ] || { echo "FATAL: x.py not found after extract" >&2; exit 1; }
+sh "$SHIPYARD_SCRIPTS/apply_patches.sh" "$OUT" "$HERE/../patches" >&2
 echo "$OUT"

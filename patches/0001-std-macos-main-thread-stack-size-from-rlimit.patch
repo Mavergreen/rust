@@ -1,0 +1,37 @@
+Subject: std: on macOS, size the main thread's stack from RLIMIT_STACK
+
+Mac OS X 10.9's libSystem reports a 512 KiB main-thread stack, and std put its
+guard page there, inside the real 8 MiB stack: every Rust program on 10.9 aborted
+with "has overflowed its stack" once main used more than 512 KiB.
+
+--- a/library/std/src/sys/pal/unix/stack_overflow.rs
++++ b/library/std/src/sys/pal/unix/stack_overflow.rs
+@@ -325,7 +325,27 @@
+     unsafe fn get_stack_start() -> Option<*mut libc::c_void> {
+         let th = libc::pthread_self();
+         let stackptr = libc::pthread_get_stackaddr_np(th);
+-        Some(stackptr.map_addr(|addr| addr - libc::pthread_get_stacksize_np(th)))
++        Some(stackptr.map_addr(|addr| addr - macos_stack_size(th)))
++    }
++
++    // Mac OS X 10.9's pthread_get_stacksize_np reports 512 KiB for the main
++    // thread, whose real stack is RLIMIT_STACK (8 MiB by default). Trusting it
++    // put the guard page inside the stack, so a main thread using more than
++    // 512 KiB died with "has overflowed its stack". Where the system reports
++    // the rlimit, the larger of the two is the same value.
++    #[cfg(target_os = "macos")]
++    unsafe fn macos_stack_size(th: libc::pthread_t) -> usize {
++        let reported = libc::pthread_get_stacksize_np(th);
++        if libc::pthread_main_np() != 1 {
++            return reported;
++        }
++        let mut limit: libc::rlimit = crate::mem::zeroed();
++        if libc::getrlimit(libc::RLIMIT_STACK, &mut limit) != 0
++            || limit.rlim_cur == libc::RLIM_INFINITY
++        {
++            return reported;
++        }
++        reported.max(limit.rlim_cur as usize)
+     }
+ 
+     #[cfg(target_os = "openbsd")]

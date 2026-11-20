@@ -16,6 +16,20 @@ upstream* is Rust; an ingredient is anything else the artifacts are built with.
 | MacOSX10.9 SDK (x86_64) | shipyard `fetch_sdk.sh` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 | MacOSX11.3 SDK (the cross pkg's arm64 half) | shipyard `fetch_sdk.sh --arch arm64` (pinned by hash) | ✅ moves with shipyard `@v1` | moving tag |
 
+## Our patches
+
+`build/fetch-rust-src.sh` applies `patches/*.patch` to the verified source with shipyard's
+`apply_patches.sh`, so every host builds the same patched tree, and the stage stamp covers them.
+
+- `0001-std-macos-main-thread-stack-size-from-rlimit.patch`: on Mac OS X 10.9, libSystem's
+  `pthread_get_stacksize_np` reports 512 KiB for the main thread, whose real stack is
+  `RLIMIT_STACK` (8 MiB by default). std put its guard page at that 512 KiB mark, so every Rust
+  program on 10.9 aborted with "has overflowed its stack" once `main` used more. The patch takes the
+  larger of the two. Recaulk carries MacPorts' corrected `pthread_get_stacksize_np`, but rustc names
+  `-lSystem` ahead of `librecaulk.a`, so a Rust program takes libSystem's. Exit: drop the patch when
+  the Recaulk override reaches every Rust link and `build/check-release-on-10.9.sh`'s
+  `main-thread-stack` step passes without it.
+
 ## Check-only pins
 
 Pinned so the release check is reproducible, but nothing shipped is built with them, so a bump
@@ -104,6 +118,7 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 - clang: components/clang22/version
 - recaulk: components/recaulk/version
 - make: components/make/version
+- patch-std-main-stack: patches/0001-std-macos-main-thread-stack-size-from-rlimit.patch
 
 ## Conformance deviations
 
