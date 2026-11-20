@@ -31,4 +31,17 @@ rm "$t/stub/ninja"; : > "$t/info2"
 mkdir -p "$t/tools"; for c in sed cat; do ln -s "$(command -v $c)" "$t/tools/$c"; done
 ( PATH="$t/stub:$t/tools"; record_build_tools "$t/info2" )
 grep -qx 'build-host-ninja=' "$t/info2" || fail "a tool the host lacks is recorded empty, not as a shell error (got '$(grep ninja "$t/info2")')"
+stub uname 'case "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; *) echo "Darwin 13.4.0" ;; esac'
+: > "$t/info3"
+if ( unset MAKE CMAKE; PATH="$t/stub:$PATH" record_build_tools "$t/info3" ) 2>/dev/null; then
+  fail "on a Mac record_build_tools must refuse an unset MAKE or CMAKE (a bare make or cmake there is the Command Line Tools stub)"
+fi
+mkdir -p "$t/pinned"
+printf '#!/bin/sh\necho "GNU Make 4.4.1"\n' > "$t/pinned/make"; printf '#!/bin/sh\necho "cmake version 4.4.5"\n' > "$t/pinned/cmake"
+chmod +x "$t/pinned/make" "$t/pinned/cmake"; : > "$t/info3"
+( MAKE="$t/pinned/make" CMAKE="$t/pinned/cmake" PATH="$t/stub:$PATH" record_build_tools "$t/info3" ) \
+  || fail "record_build_tools refused a Mac with MAKE and CMAKE set"
+grep -qx 'build-host=x86_64-apple-darwin' "$t/info3" || fail "a 10.9 build host is x86_64-apple-darwin"
+grep -qx 'build-host-make=GNU Make 4.4.1' "$t/info3" || fail "on a Mac build-host-make is \$MAKE's (got '$(grep make "$t/info3")')"
+grep -qx 'build-host-cmake=cmake version 4.4.5' "$t/info3" || fail "on a Mac build-host-cmake is \$CMAKE's"
 echo "OK build-tools-test"
