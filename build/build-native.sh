@@ -46,6 +46,9 @@ pin_onbox_tools "$BUILD_TRIPLE" "$CLANGDIR" "$SDK"
 pin_linux_build_sdk "$BUILD_TRIPLE" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
+# platform: stage0's std takes 10.9 libSystem's 512 KiB main stack, so on-box bootstrap overflows unless Recaulk's pthread_get_stacksize_np is loaded
+[ "$MODE" != native ] || { RUSTFLAGS_BOOTSTRAP="-C link-arg=-Wl,-force_load,$RECAULK_A"; export RUSTFLAGS_BOOTSTRAP; }
+
 # platform: the cmake crate (which bootstrap drives LLVM through) reads
 #           CMAKE_TOOLCHAIN_FILE_<target, dashes as underscores> before CMAKE_TOOLCHAIN_FILE
 ( cd "$SRC" && PATH="$MAKE_BIN:$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
