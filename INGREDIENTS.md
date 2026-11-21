@@ -100,6 +100,12 @@ the stage0 and build triple, and the cross-hosted build's LLVM also has the AArc
 build triple is aarch64 and bootstrap's `[llvm] targets` covers every LLVM it builds. The on-box
 build's LLVM is X86 only.
 
+On 10.9, x.py's own `bootstrap` driver is compiled by stage0, whose std is upstream's and takes
+libSystem's 512 KiB main-thread stack, so it overflows before the build starts. `build-native.sh`
+sets `RUSTFLAGS_BOOTSTRAP` on that path to force-load Recaulk into the driver alone. It is a build
+tool, never shipped. Revisit when clang22's `librecaulk-libsystem.a` (ahead of every input) has
+shipped and an on-box `bootstrap` shows `pthread_get_stacksize_np` defined without the flag.
+
 ## Single upstream — why no `lines/`
 
 Rust is one fast-moving upstream whose users always want latest; there are no concurrently-supported
