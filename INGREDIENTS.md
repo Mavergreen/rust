@@ -106,6 +106,12 @@ sets `RUSTFLAGS_BOOTSTRAP` on that path to force-load Recaulk into the driver al
 tool, never shipped. Revisit when clang22's `librecaulk-libsystem.a` (ahead of every input) has
 shipped and an on-box `bootstrap` shows `pthread_get_stacksize_np` defined without the flag.
 
+The stage0 dylib that the on-box build injects into the official rustc and cargo is built from
+`librecaulk.a` with `posix_spawn_file_actions_addchdir_np` and `addfchdir_np` unexported. Recaulk's
+`posix_spawn` wrappers stay private to whatever links them, so with those two exported, std found
+them through `dlsym`, and libSystem's `posix_spawnp` then dropped the chdir for every process cargo
+started. Revisit when Recaulk gives those two the wrappers' visibility and says so.
+
 ## Single upstream — why no `lines/`
 
 Rust is one fast-moving upstream whose users always want latest; there are no concurrently-supported
