@@ -20,7 +20,7 @@ stub "$t/bin/sysctl" 'case "$*" in *hw.optional.arm64*) echo 1 ;; *hw.ncpu*) ech
 stub "$t/bin/python3" '{ echo "args=$*"; echo "SDKROOT=${SDKROOT-unset}"
   echo "RUSTFLAGS_X86=${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS-unset}"
   echo "CFLAGS_X86=${CFLAGS_x86_64_apple_darwin-unset}"
-  echo "LINUX_HOST_CC=${LINUX_HOST_CC-unset}"; echo "CC=${CC-unset}"
+  echo "LINUX_HOST_CC=${LINUX_HOST_CC-unset}"; echo "CC=${CC-unset}"; echo "RUSTFLAGS_BOOTSTRAP=${RUSTFLAGS_BOOTSTRAP-unset}"
   echo "CFLAGS_ARM64=${CFLAGS_aarch64_apple_darwin-unset}"; echo "CXXFLAGS_ARM64=${CXXFLAGS_aarch64_apple_darwin-unset}"
   echo "TOOLCHAIN_ARM64=${CMAKE_TOOLCHAIN_FILE_aarch64_apple_darwin-unset}"
   echo "CMAKE=$CMAKE"; } > "$CAPTURE"; cp bootstrap.toml "$CAPTURE.toml"; exit 3'
@@ -60,7 +60,7 @@ for v in native cross; do
   for x in 'rustc = ' local-rebuild use-libcxx compress-debuginfo CMAKE_DISABLE_PRECOMPILE_HEADERS 'x86_64-unknown-linux-gnu'; do
     ! grep -qF "$x" "$toml" || fail "$v: an Apple Silicon build's bootstrap.toml has no '$x' (stage0 and Linux-only settings)"
   done
-  for x in SDKROOT=unset RUSTFLAGS_X86=unset CFLAGS_X86=unset LINUX_HOST_CC=unset CC=unset; do
+  for x in SDKROOT=unset RUSTFLAGS_X86=unset CFLAGS_X86=unset LINUX_HOST_CC=unset CC=unset RUSTFLAGS_BOOTSTRAP=unset; do
     grep -qx "$x" "$e" || fail "$v: x.py's environment must have $x on an Apple Silicon Mac (got '$(grep "^${x%%=*}=" "$e")')"
   done
   grep -qx "CMAKE=$t/work/work-$v/cmake-bin/cmake" "$e" && [ "$(readlink "$t/work/work-$v/cmake-bin/cmake")" = "$t/shipyard-cmake" ] \
