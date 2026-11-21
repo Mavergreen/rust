@@ -43,8 +43,11 @@ cp -R "$D/rust-std-$H/lib/rustlib/$H" "$D/rustc/lib/rustlib/"
 # platform: -all_load also forces compiler-rt's os_version_check.o, which needs
 #           _availability_version_check, absent from 10.9's libSystem
 # platform: -force_load takes librecaulk.a's C++ catch rules too, which call 10.9's libc++abi
+# platform: Recaulk's posix_spawn wrappers stay private, so an exported addchdir_np would be found by std's
+#           dlsym and its chdir lost in libSystem's posix_spawnp; hidden, std falls back to fork and chdir
 "$CLANGDIR/bin/clang" --no-default-config -dynamiclib -mmacosx-version-min=10.9 \
   -Wl,-force_load,"$RECAULK_A" -framework CoreFoundation -framework Security -framework CoreServices -lobjc -lc++abi \
+  -Wl,-unexported_symbol,_posix_spawn_file_actions_addchdir_np -Wl,-unexported_symbol,_posix_spawn_file_actions_addfchdir_np \
   -install_name "$S0/librecaulk-stage0.dylib" -o "$S0/librecaulk-stage0.dylib" >&2
 write_stage0_wrappers "$S0" "$D"
 echo "$S0"
