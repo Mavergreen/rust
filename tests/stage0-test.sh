@@ -20,6 +20,10 @@ grep -q "exec \"$t/dist/rustc/bin/rustc\"" "$t/s0/bin/rustc" || fail "rustc wrap
 grep -q "exec \"$t/dist/cargo/bin/cargo\"" "$t/s0/bin/cargo" || fail "cargo wrapper execs the wrong binary"
 grep -q -- '-force_load,"$RECAULK_A".* -lc++abi' "$F" \
   || fail "the stage0 dylib force-loads librecaulk.a, whose C++ catch rules call 10.9's libc++abi"
+for f in addchdir_np addfchdir_np; do
+  grep -q -- "-unexported_symbol,_posix_spawn_file_actions_$f" "$F" \
+    || fail "the stage0 dylib must not export posix_spawn_file_actions_$f: std finds it with dlsym, then calls libSystem's posix_spawnp, which never sees the chdir"
+done
 
 RV="$(tr -d ' \t\n' < "$ROOT/UPSTREAM_VERSION")"
 H=x86_64-unknown-linux-gnu; name="rust-$RV-$H"
