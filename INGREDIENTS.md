@@ -94,11 +94,22 @@ build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of
 
 ## Build equivalence (native, cross-hosted vs on 10.9)
 
-The two ways of building the native toolchain ship the same files (same `build-info-native.txt`, same
-payload list once crate-hash suffixes are normalized), but not the same bytes. Crate hashes differ with
-the stage0 and build triple, and the cross-hosted build's LLVM also has the AArch64 backend, because its
-build triple is aarch64 and bootstrap's `[llvm] targets` covers every LLVM it builds. The on-box
-build's LLVM is X86 only.
+Measured once (2026-11-21) between CI's Linux-hosted `build-native` at ca55507 and `build-native.sh`
+run natively on 10.9.5 at the same pins, under a work root of the same length:
+
+- `build-info-native.txt` is identical apart from the `build-host*` keys.
+- The payloads hold the same 375 paths once crate-hash suffixes are normalized; 284 files are
+  byte-identical, the updater executable among them.
+- Every Mach-O links the same dylibs with the same minos and SDK. `rustc.bin`'s exports, imports and
+  section sizes are identical.
+- The rest differ in bytes, for two reasons, neither keyed on anything this repo sets:
+  - Crate hashes. cargo hashes `rustc -vV` of the compiler that builds std, and its `host:` line is
+    the build triple. The hashes reach every symbol name, so most `.rlib` members, `cargo`,
+    `rustdoc`, `clippy-driver` and `rustfmt` differ, and generics instantiate in other crates.
+  - Function order in LLVM's tools. Same flags, same clang22 configuration, the same `libc++.a` and
+    the same CMake check results, yet clang22 hosted on Linux and clang22 hosted on 10.9 emit a
+    translation unit's inline functions in a different order, so `__text`, `__cstring` and
+    `__unwind_info` are permuted at equal sizes.
 
 On 10.9, x.py's own `bootstrap` driver is compiled by stage0, whose std is upstream's and takes
 libSystem's 512 KiB main-thread stack, so it overflows before the build starts. `build-native.sh`
