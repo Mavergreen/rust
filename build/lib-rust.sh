@@ -49,7 +49,8 @@ sysconfdir = "etc"
 EOF
     # platform: built on 10.9 itself, bootstrap's own build scripts compile and link at the 10.9 floor
     #           with stage0, the unpatched prebuilt, whose minimum is 10.12 (patch 0003 lowers only
-    #           ours); rustc and clang++ warn about it, and bootstrap denies warnings
+    #           ours); rustc and clang++ warn about it, and bootstrap denies warnings; revisit when
+    #           stage0 is a rustc whose x86_64 macOS minimum is 10.9
     if [ "$_build" = "$TARGET_TRIPLE" ]; then printf 'deny-warnings = false\n'; fi
     # platform: the source tarball's dist profile compresses debuginfo with zlib, which bootstrap
     #           applies to non-Apple targets only, and clang22's ld.lld has no zlib

@@ -8,26 +8,38 @@
 #          every Mach-O under bin/ and lib/, may hold one only in a function listed in
 #          core2-allowlist.txt (CORE2_ALLOWLIST overrides it), by demangled name without its hash.
 #          Prints "core2: N objects, M executables clean", or one "core2: FILE FUNCTION uses MNEMONIC"
-#          line per offender and exits 1. LLVM_DIS overrides clang22's llvm-dis. On Linux, CLANGDIR
-#          names clang22.
+#          line per offender and exits 1. LLVM_DIS names the llvm-dis to try first, before the prefix's
+#          own, the build tree's and clang22's. On Linux, CLANGDIR names clang22.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"; macho_tools
 P="${1:?usage: assert-core2.sh PREFIX}"
 B="$(dirname "$OTOOL")"
-DIS="${LLVM_DIS:-$B/llvm-dis}"
+# platform: std's bitcode is written by rust's own LLVM, which an older llvm-dis cannot read; the prefix
+#           ships a matching one under lib/rustlib/<host>/bin, and the build tree has one for its host
+DIS=""
+for _d in ${LLVM_DIS:+"$LLVM_DIS"} "$P"/lib/rustlib/*/bin/llvm-dis "${WORK_ROOT:-/nonexistent}"/work-*/*/build/*/llvm/bin/llvm-dis \
+          "${WORK_ROOT:-/nonexistent}"/work-*/*/build/*/llvm/build/bin/llvm-dis "$B/llvm-dis"; do
+  [ -x "$_d" ] && "$_d" --version > /dev/null 2>&1 && { DIS="$_d"; break; }
+done
+echo "core2: reading bitcode with ${DIS:-no llvm-dis that runs here}" >&2
 AL="${CORE2_ALLOWLIST:-$HERE/core2-allowlist.txt}"
 SET='^(v.*|pblendvb|pblendw|blendp[sd]|blendvp[sd]|ptest|pmin(sb|sd|uw|ud)|pmax(sb|sd|uw|ud)|pmulld|pmuldq|pextr[bdq]|pinsr[bdq]|round[sp][sd]|dpp[sd]|insertps|extractps|pcmpeqq|pcmpgtq|packusdw|pmov[sz]x(bw|bd|bq|wd|wq|dq)|mpsadbw|phminposuw|movntdqa|crc32[bwlq]?|popcnt[wlq]?|pcmp[ei]str[im]|lzcnt[wlq]?|andn[lq]|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|bzhi[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|mulx[lq]?|movbe[wlq]?|adcx[lq]?|adox[lq]?|aes(enc|enclast|dec|declast|imc|keygenassist)|pclmulqdq|sha1(rnds4|nexte|msg1|msg2)|sha256(rnds2|msg1|msg2)|rdrand[wlq]?|rdseed[wlq]?)$'
 t="$(mktemp -d "${TMPDIR:-/tmp}/assert-core2.XXXXXX")"; trap 'rm -rf "$t"' EXIT
+for _x in llvm-objdump llvm-ar llvm-objcopy llvm-cxxfilt; do
+  [ -x "$B/$_x" ] || { echo "core2: no $_x in $B (clang22's tools)" >&2; exit 1; }
+done
 
 magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 offenders() {  # offenders FILE: "SYMBOL MNEMONIC" for each function holding an instruction core2 lacks
-  "$B/llvm-objdump" -d --no-show-raw-insn "$1" | awk -v re="$SET" '
+  "$B/llvm-objdump" -d --no-show-raw-insn "$1" > "$t/dis" 2> "$t/dis.err" \
+    || { echo "core2: llvm-objdump cannot disassemble $1: $(head -1 "$t/dis.err")" >&2; exit 1; }
+  awk -v re="$SET" '
     /^[0-9a-f]+ <.*>:$/ { f = $2; sub(/^</, "", f); sub(/>:$/, "", f); next }
     /^ *[0-9a-f]+:/ { sub(/^ *[0-9a-f]+:[ \t]*/, ""); m = $1
-      if (m ~ re && m != "verr" && m != "verw" && !(f in seen)) { seen[f] = 1; print f, m } }'
+      if (m ~ re && m != "verr" && m != "verw" && !(f in seen)) { seen[f] = 1; print f, m } }' "$t/dis"
 }
-demangle() { "$B/llvm-cxxfilt" -_ | sed -E 's/^_//; s/::h[0-9a-f]{16}$//'; }
+demangle() { "$B/llvm-cxxfilt" -_ | sed -E 's/^_//; s/ \(\.llvm\.[0-9]+\)$//; s/\.llvm\.[0-9]+$//; s/::h[0-9a-f]{16}$//'; }
 opted() {  # opted LL: the Mach-O symbols compiled for core2 plus a later feature by their own attribute
   awk '
     /^attributes #[0-9]+ = / { g = $2; c = ""; f = ""
@@ -67,7 +79,7 @@ for r in "$P"/lib/rustlib/x86_64-apple-darwin/lib/*.rlib; do
     offenders "$o" > "$t/off"; [ -s "$t/off" ] || continue
     rule=allowlist
     if "$B/llvm-objcopy" --dump-section __LLVM,__bitcode="$t/bc" "$o" "$t/o.out" 2>/dev/null && [ -s "$t/bc" ] \
-       && "$DIS" "$t/bc" -o "$t/ll" 2>/dev/null; then
+       && [ -n "$DIS" ] && "$DIS" "$t/bc" -o "$t/ll" 2>/dev/null; then
       rule=bitcode; opted "$t/ll" > "$t/ok"
     else
       cut -d' ' -f1 "$t/off" > "$t/syms"; listed "$t/syms" > "$t/ok"
