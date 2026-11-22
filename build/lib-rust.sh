@@ -598,3 +598,8 @@ guard_prefix() {
   done
   rm -rf "$_gd"; return $_rc
 }
+
+# platform: openssl-src stamps libcrypto's "built on" date from SOURCE_DATE_EPOCH, else the clock
+export_source_date_epoch() {
+  SOURCE_DATE_EPOCH="$(sh "$SHIPYARD_SCRIPTS/source-date-epoch.sh")"; export SOURCE_DATE_EPOCH
+}
