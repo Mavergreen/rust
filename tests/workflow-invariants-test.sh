@@ -19,6 +19,16 @@ awk '/^  publish:/{p=1; next} p && /^  [a-z]/{p=0} p' "$W" | grep -q 'needs:.*vm
 vm="$(awk '/^  vm-test:/{p=1; next} p && /^  [a-z]/{p=0} p' "$W")"
 printf '%s\n' "$vm" | grep -q 'packages: write' || fail "vm-test needs packages: write to cache the mavericks-vm image"
 printf '%s\n' "$vm" | grep -q 'check-release-on-10.9.sh' || fail "vm-test must run build/check-release-on-10.9.sh against the built pkg"
+A="$ROOT/.github/actions"
+for j in build-native build-cross build-linux; do
+  body="$(awk -v j="  $j:" '$0 == j {p=1; next} p && /^  [a-z]/{p=0} p' "$W")"
+  printf '%s\n' "$body" | grep -q 'uses: ./.github/actions/build-setup' || fail "$j prepares its runner with ./.github/actions/build-setup, the one copy of that setup"
+  printf '%s\n' "$body" | grep -q 'uses: ./.github/actions/build-report' || fail "$j reports wall time and disk with ./.github/actions/build-report"
+  printf '%s\n' "$body" | grep -q '"$RUNNER_TEMP/end"' || fail "$j's Build step records when it ends, so the wall time it reports leaves out Package"
+done
+[ "$(grep -c 'usr/share/dotnet' "$W" "$A"/*/action.yml | awk -F: '{n += $2} END {print n}')" = 1 ] \
+  || fail "the disk-freeing step is written once, in build-setup"
+grep -q 'RUNNER_TEMP/end' "$A/build-report/action.yml" || fail "build-report's wall time ends where Build ended"
 python3 -c 'import yaml' > /dev/null 2>&1 || { echo "no PyYAML -- skipping the job-graph checks"; exit 77; }
 python3 - "$W" "$ROOT/.github/workflows" <<'PY' || exit 1
 import json, os, re, sys, yaml
