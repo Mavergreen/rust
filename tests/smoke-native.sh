@@ -3,9 +3,10 @@
 #   usage: smoke-native.sh
 #          The static half audits fixture stages (a good one passes, each bad one fails), then the native
 #          stage if one is built: the seven tools, every Mach-O thin x86_64 with minos 10.9 and sdk 10.9,
-#          no /opt/ or work-tree path loaded, guard_prefix, and _clock_gettime defined in cargo (Recaulk's,
-#          since 10.9's libSystem has none). The executing half compiles and runs a program with the
-#          stage, on an x86_64 Mac only, decided from uname -s and hw.optional.arm64.
+#          no /opt/ or work-tree path loaded, guard_prefix, _clock_gettime defined in cargo (Recaulk's,
+#          since 10.9's libSystem has none), and build/assert-core2.sh: nothing a Core 2 Mac cannot run.
+#          The executing half compiles and runs a program with the stage, on an x86_64 Mac only, decided
+#          from uname -s and hw.optional.arm64.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$ROOT/build/versions.sh"; . "$ROOT/build/lib-rust.sh"; . "$ROOT/tests/lib/clang22.sh"; macho_tools
@@ -68,6 +69,8 @@ bad rm "$t/bad/bin/cargo-fmt"
 
 if [ ! -e "$S/bin/rustc" ]; then echo "OK smoke-native (fixtures; no native stage built)"; exit 0; fi
 audit "$S" > "$t/out" || { cat "$t/out"; fail "the native stage at $S"; }
+sh "$ROOT/build/assert-core2.sh" "$S" > "$t/core2" 2>&1 || { cat "$t/core2"; fail "the native stage holds code a Core 2 Mac cannot run (patch 0003)"; }
+cat "$t/core2"
 echo "(static audit of the native stage passed)"
 
 arm="$(sysctl -n hw.optional.arm64 2>/dev/null)" || arm=0
