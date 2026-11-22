@@ -211,7 +211,7 @@ case "$out" in *isysroot*) fail "case 36 an arm64 link keeps rustc's own SDK han
 out="$(SDKROOT=/the/sdk "$t/native/bin/rustc" x.rs)"
 case "$out" in *isysroot*) fail "case 36 the native wrapper is unchanged: rustc on 10.9 passes SDKROOT itself: $out" ;; esac
 NL="$t/native/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
-passes() {  # passes CASE OUT ARGS...: the wrapper ran rustc.bin with argv unchanged
+passes() {
   c="$1"; o="$2"; shift 2
   [ "$o" = "STUB $*" ] || fail "$c: --no-default-config on a link means the wrapper adds nothing: $o"
 }
