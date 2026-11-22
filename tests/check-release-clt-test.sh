@@ -63,7 +63,7 @@ out="$(run "$t/clt" "$MK; : > \"\$w/smoke-cc\"; minos_sdk && echo ok")"
 set +e; out="$(run "$t/noclt" 'minos_sdk')"; rc=$?; set -e
 [ "$rc" != 0 ] || fail "minos-sdk never passes with no binaries at all"
 
-for st in stress-program crates-io clippy-proc-macro-build-rs-doctest clang22 link-clang22 link-clang22-build-rs minos-sdk; do
+for st in stress-program crates-io git-https clippy-proc-macro-build-rs-doctest clang22 link-clang22 link-clang22-build-rs minos-sdk; do
   grep -q "^step $st " "$S" || fail "$st needs no Command Line Tools (rust links with clang22 by default), so it always runs as a step"
 done
 [ "$(grep -c '^cstep ' "$S")" = 1 ] && grep -q '^cstep explicit-cc explicit_cc$' "$S" \
@@ -71,7 +71,7 @@ done
 grep -q 'rustc -C linker=cc ' "$S" || fail "explicit-cc names cc as the linker"
 c="$(grep -n '^step clang22 ' "$S" | cut -d: -f1)"; i="$(grep -n '^step install ' "$S" | cut -d: -f1)"
 [ "$c" -lt "$i" ] || fail "clang22 is installed before rust, whose preinstall requires it"
-for f in stress crates_io clippy_ws; do
+for f in stress crates_io git_https clippy_ws; do
   if sed -n "/^$f() {/,/^}/p" "$S" | grep -qi 'linker'; then fail "$f exercises rust's default linker, so it names none"; fi
 done
 n() { grep -n "^c*step $1 " "$S" | cut -d: -f1; }
