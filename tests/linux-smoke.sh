@@ -7,7 +7,7 @@
 #          TARBALL as shipyard's fetch_product_tar.sh does, then checks the three things below.
 #            - The shipped ELF loads only glibc, libgcc_s and its own libraries.
 #            - rustc -vV names the Linux host and the pinned release.
-#            - target-core2-test.sh passes with its rustc: 10.9 and core2 by default.
+#            - target/target-core2.sh passes with its rustc: 10.9 and core2 by default.
 #            - cargo builds a HashMap+Instant program for x86_64-apple-darwin, linked by clang22's
 #              clang++ against the pinned 10.9 SDK, and the output is thin x86_64 with minos 10.9,
 #              sdk 10.9, Recaulk's _clock_gettime, and no /opt/ load path.
@@ -97,7 +97,7 @@ vv="$("$P/bin/rustc" -vV)"
 printf '%s\n' "$vv" | grep -qx 'host: x86_64-unknown-linux-gnu' || fail "rustc -vV names no Linux host: $vv"
 printf '%s\n' "$vv" | grep -qx "release: $RUST_VERSION" || fail "rustc -vV names no release $RUST_VERSION: $vv"
 [ -f "$P/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a" ] || fail "the tarball lacks lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
-sh "$HERE/target-core2-test.sh" "$P/bin/rustc" > "$t/out" 2>&1 || { cat "$t/out"; fail "the tarball's rustc targets 10.9 and core2 by default (patch 0003)"; }
+sh "$HERE/target/target-core2.sh" "$P/bin/rustc" > "$t/out" 2>&1 || { cat "$t/out"; fail "the tarball's rustc targets 10.9 and core2 by default (patch 0003)"; }
 grep '^PASS' "$t/out"
 
 A="$t/app"; mkdir -p "$A/src"
