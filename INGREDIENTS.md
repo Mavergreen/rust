@@ -46,7 +46,11 @@ rewritten (`build/rehash-vendored.sh`), since cargo refuses a vendored file that
   `minimum_deployment_target`) and the x86_64 CPU `core2`, so std, the shipped tools and every program
   built with no flags run on every Mac that runs 10.9, and `--print cfg` and `--print
   deployment-target` say so. A caller's own `-C target-cpu` still applies. `tests/target-core2-test.sh`
-  and `build/check-release-on-10.9.sh`'s `target-defaults` step cover it. Exit: upstream rustc lowers
+  and `build/check-release-on-10.9.sh`'s `target-defaults` step cover it. The core2 guarantee is
+  checked statically, function by function, by `build/assert-core2.sh` in smoke-native (a function
+  may hold SSE4.1 or later only behind its own `#[target_feature]`, or by name in
+  `build/core2-allowlist.txt`), because under KVM the 10.9 VM runs newer instructions whatever CPU it
+  reports. Exit: upstream rustc lowers
   the x86_64 macOS floor to 10.9 and the CPU to core2 (or the floor rises past the last
   Merom-capable macOS).
 

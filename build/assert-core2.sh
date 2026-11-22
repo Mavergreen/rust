@@ -1,0 +1,89 @@
+#!/bin/sh
+# platform: host-agnostic
+#   usage: assert-core2.sh PREFIX
+#          Proves a staged or installed native rust prefix runs on a Core 2 Mac, function by function.
+#          An x86_64-apple-darwin rlib object's function may hold an instruction core2 lacks (SSE4.1 and
+#          later) only if its embedded bitcode compiles it for core2 plus such a feature by its own
+#          attribute (runtime-detected paths); an object whose bitcode this llvm-dis cannot read, and
+#          every Mach-O under bin/ and lib/, may hold one only in a function listed in
+#          core2-allowlist.txt (CORE2_ALLOWLIST overrides it), by demangled name without its hash.
+#          Prints "core2: N objects, M executables clean", or one "core2: FILE FUNCTION uses MNEMONIC"
+#          line per offender and exits 1. LLVM_DIS overrides clang22's llvm-dis. On Linux, CLANGDIR
+#          names clang22.
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/versions.sh"; . "$HERE/lib-rust.sh"; macho_tools
+P="${1:?usage: assert-core2.sh PREFIX}"
+B="$(dirname "$OTOOL")"
+DIS="${LLVM_DIS:-$B/llvm-dis}"
+AL="${CORE2_ALLOWLIST:-$HERE/core2-allowlist.txt}"
+SET='^(v.*|pblendvb|pblendw|blendp[sd]|blendvp[sd]|ptest|pmin(sb|sd|uw|ud)|pmax(sb|sd|uw|ud)|pmulld|pmuldq|pextr[bdq]|pinsr[bdq]|round[sp][sd]|dpp[sd]|insertps|extractps|pcmpeqq|pcmpgtq|packusdw|pmov[sz]x(bw|bd|bq|wd|wq|dq)|mpsadbw|phminposuw|movntdqa|crc32[bwlq]?|popcnt[wlq]?|pcmp[ei]str[im]|lzcnt[wlq]?|andn[lq]|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|bzhi[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|mulx[lq]?|movbe[wlq]?|adcx[lq]?|adox[lq]?|aes(enc|enclast|dec|declast|imc|keygenassist)|pclmulqdq|sha1(rnds4|nexte|msg1|msg2)|sha256(rnds2|msg1|msg2)|rdrand[wlq]?|rdseed[wlq]?)$'
+t="$(mktemp -d "${TMPDIR:-/tmp}/assert-core2.XXXXXX")"; trap 'rm -rf "$t"' EXIT
+
+magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
+offenders() {  # offenders FILE: "SYMBOL MNEMONIC" for each function holding an instruction core2 lacks
+  "$B/llvm-objdump" -d --no-show-raw-insn "$1" | awk -v re="$SET" '
+    /^[0-9a-f]+ <.*>:$/ { f = $2; sub(/^</, "", f); sub(/>:$/, "", f); next }
+    /^ *[0-9a-f]+:/ { sub(/^ *[0-9a-f]+:[ \t]*/, ""); m = $1
+      if (m ~ re && m != "verr" && m != "verw" && !(f in seen)) { seen[f] = 1; print f, m } }'
+}
+demangle() { "$B/llvm-cxxfilt" -_ | sed -E 's/^_//; s/::h[0-9a-f]{16}$//'; }
+opted() {  # opted LL: the Mach-O symbols compiled for core2 plus a later feature by their own attribute
+  awk '
+    /^attributes #[0-9]+ = / { g = $2; c = ""; f = ""
+      if (match($0, /"target-cpu"="[^"]*"/)) c = substr($0, RSTART + 14, RLENGTH - 15)
+      if (match($0, /"target-features"="[^"]*"/)) f = substr($0, RSTART + 19, RLENGTH - 20)
+      if ((c == "core2" || c == "x86-64" || c == "generic") && f ~ /(^|,)\+(sse4\.1|sse4\.2|popcnt|avx|avx2|avx512[a-z0-9]*|fma|f16c|bmi|bmi2|lzcnt|aes|pclmul|sha|movbe|adx|rdrnd|rdseed)(,|$)/) ok[g] = 1
+      next }
+    /^define / { if (!match($0, /@("[^"]*"|[-a-zA-Z$._0-9]+)/)) next
+      n = substr($0, RSTART + 1, RLENGTH - 1); gsub(/"/, "", n)
+      if (match($0, /\) [^{]*#[0-9]+/)) { a = substr($0, RSTART, RLENGTH); sub(/.*#/, "#", a); fn[n] = a } }
+    END { for (n in fn) if (fn[n] in ok) print "_" n }' "$1"
+}
+listed() {  # listed SYMBOLS-FILE: the symbols whose demangled name the allowlist holds
+  demangle < "$1" > "$1.d"
+  paste -d ' ' "$1" "$1.d" | while read -r s d; do
+    grep -qxF -- "$d" "$AL" 2>/dev/null && printf '%s\n' "$s"
+  done
+  return 0
+}
+report() {  # report LABEL OFFENDERS ALLOWED RULE
+  awk 'FILENAME == ARGV[1] { a[$1] = 1; next } !($1 in a)' "$3" "$2" > "$t/bad"
+  [ -s "$t/bad" ] || return 0
+  cut -d' ' -f1 "$t/bad" | demangle > "$t/badd"
+  paste -d ' ' "$t/bad" "$t/badd" | while read -r _s m d; do
+    echo "core2: $1 $d uses $m${4:+ ($4)}"
+  done
+  st=1
+}
+
+st=0; no=0; ne=0
+for r in "$P"/lib/rustlib/x86_64-apple-darwin/lib/*.rlib; do
+  [ -f "$r" ] || continue
+  rm -rf "$t/x"; mkdir "$t/x"; ( cd "$t/x" && "$B/llvm-ar" x "$r" )
+  for o in "$t"/x/*; do
+    [ "$(magic "$o")" = cffaedfe ] || continue
+    no=$((no + 1))
+    offenders "$o" > "$t/off"; [ -s "$t/off" ] || continue
+    rule=allowlist
+    if "$B/llvm-objcopy" --dump-section __LLVM,__bitcode="$t/bc" "$o" "$t/o.out" 2>/dev/null && [ -s "$t/bc" ] \
+       && "$DIS" "$t/bc" -o "$t/ll" 2>/dev/null; then
+      rule=bitcode; opted "$t/ll" > "$t/ok"
+    else
+      cut -d' ' -f1 "$t/off" > "$t/syms"; listed "$t/syms" > "$t/ok"
+    fi
+    rm -f "$t/bc" "$t/ll" "$t/o.out"
+    report "$r($(basename "$o"))" "$t/off" "$t/ok" "$rule"
+  done
+done
+find "$P/bin" "$P/lib" -type f ! -name '*.rlib' 2>/dev/null | sort > "$t/files"
+while IFS= read -r f; do
+  case "$(magic "$f")" in cffaedfe|cafebabe) : ;; *) continue ;; esac
+  ne=$((ne + 1))
+  offenders "$f" > "$t/off"; [ -s "$t/off" ] || continue
+  cut -d' ' -f1 "$t/off" > "$t/syms"; listed "$t/syms" > "$t/ok"
+  report "$f" "$t/off" "$t/ok" ""
+done < "$t/files"
+[ $((no + ne)) -gt 0 ] || { echo "core2: $P holds no x86_64-apple-darwin rlib object and no Mach-O under bin/ or lib/" >&2; exit 1; }
+[ "$st" = 0 ] || exit 1
+echo "core2: $no objects, $ne executables clean"
