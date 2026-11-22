@@ -39,6 +39,16 @@ rewritten (`build/rehash-vendored.sh`), since cargo refuses a vendored file that
   `SSLHandshake` until it completes, as Apple documents. libgit2's main branch has the same code.
   `build/check-release-on-10.9.sh`'s `git-https` step covers it. Exit: drop the patch when the
   libgit2 that cargo vendors finishes the handshake itself.
+- `0003-rustc-target-macos-10.9-core2.patch`: rustc 1.99.1's `x86_64-apple-darwin` defaulted to
+  deployment target 10.12 and CPU penryn, so std was compiled with SSE4.1 and every Rust program
+  could die with SIGILL on a Core 2 (Merom) Mac, which runs 10.9. The patch makes
+  `os_minimum_deployment_target` return 10.9 for macOS (arm64 keeps 11.0 through
+  `minimum_deployment_target`) and the x86_64 CPU `core2`, so std, the shipped tools and every program
+  built with no flags run on every Mac that runs 10.9, and `--print cfg` and `--print
+  deployment-target` say so. A caller's own `-C target-cpu` still applies. `tests/target-core2-test.sh`
+  and `build/check-release-on-10.9.sh`'s `target-defaults` step cover it. Exit: upstream rustc lowers
+  the x86_64 macOS floor to 10.9 and the CPU to core2 (or the floor rises past the last
+  Merom-capable macOS).
 
 ## Check-only pins
 
@@ -156,6 +166,7 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 - make: components/make/version
 - patch-std-main-stack: patches/0001-std-macos-main-thread-stack-size-from-rlimit.patch
 - patch-libgit2-stransport: patches/0002-libgit2-stransport-finish-handshake-after-server-auth.patch
+- patch-rustc-target: patches/0003-rustc-target-macos-10.9-core2.patch
 
 ## Conformance deviations
 
