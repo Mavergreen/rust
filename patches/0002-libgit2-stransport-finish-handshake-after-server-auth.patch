@@ -1,0 +1,26 @@
+Subject: libgit2: finish the SecureTransport handshake after checking the server
+
+libgit2 asks SecureTransport to break out of the handshake at server
+authentication, checks the certificate, then returns without calling
+SSLHandshake again, leaving SSLWrite to finish it. Mac OS X 10.9's
+SecureTransport does not: SSLWrite returns errSecBadReq (-909, "Bad parameter
+or invalid state for operation"), so cargo fetched no HTTPS git dependency on
+10.9. Calling SSLHandshake until it completes, as Apple documents for
+kSSLSessionOptionBreakOnServerAuth, works on every macOS.
+
+--- a/vendor/libgit2-sys-0.18.7+1.9.6/libgit2/src/libgit2/streams/stransport.c
++++ b/vendor/libgit2-sys-0.18.7+1.9.6/libgit2/src/libgit2/streams/stransport.c
+@@ -120,6 +120,13 @@
+ 		return GIT_ECERTIFICATE;
+ 	}
+ 
++	do {
++		ret = SSLHandshake(st->ctx);
++	} while (ret == errSSLWouldBlock);
++
++	if (ret != noErr)
++		return st->error != 0 ? -1 : stransport_error(ret);
++
+ 	return 0;
+ 
+ on_error:

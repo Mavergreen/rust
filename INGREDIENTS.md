@@ -20,6 +20,8 @@ upstream* is Rust; an ingredient is anything else the artifacts are built with.
 
 `build/fetch-rust-src.sh` applies `patches/*.patch` to the verified source with shipyard's
 `apply_patches.sh`, so every host builds the same patched tree, and the stage stamp covers them.
+A patch to a vendored crate also has its files' entries in that crate's `.cargo-checksum.json`
+rewritten (`build/rehash-vendored.sh`), since cargo refuses a vendored file that does not match.
 
 - `0001-std-macos-main-thread-stack-size-from-rlimit.patch`: on Mac OS X 10.9, libSystem's
   `pthread_get_stacksize_np` reports 512 KiB for the main thread, whose real stack is
@@ -29,6 +31,14 @@ upstream* is Rust; an ingredient is anything else the artifacts are built with.
   `-lSystem` ahead of `librecaulk.a`, so a Rust program takes libSystem's. Exit: drop the patch when
   the Recaulk override reaches every Rust link and `build/check-release-on-10.9.sh`'s
   `main-thread-stack` step passes without it.
+- `0002-libgit2-stransport-finish-handshake-after-server-auth.patch`: libgit2 (vendored by
+  `libgit2-sys` 0.18.7, libgit2 1.9.6, which cargo links) breaks out of the SecureTransport handshake
+  to check the server's certificate, then leaves `SSLWrite` to finish the handshake. Mac OS X 10.9's
+  SecureTransport refuses that with `errSecBadReq`, so cargo fetched no HTTPS git dependency on 10.9
+  ("SecureTransport error: Bad parameter or invalid state for operation"). The patch calls
+  `SSLHandshake` until it completes, as Apple documents. libgit2's main branch has the same code.
+  `build/check-release-on-10.9.sh`'s `git-https` step covers it. Exit: drop the patch when the
+  libgit2 that cargo vendors finishes the handshake itself.
 
 ## Check-only pins
 
@@ -136,6 +146,7 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 - recaulk: components/recaulk/version
 - make: components/make/version
 - patch-std-main-stack: patches/0001-std-macos-main-thread-stack-size-from-rlimit.patch
+- patch-libgit2-stransport: patches/0002-libgit2-stransport-finish-handshake-after-server-auth.patch
 
 ## Conformance deviations
 
