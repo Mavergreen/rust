@@ -88,5 +88,7 @@ sed -n '/^use std::collections/,/^}/p' "$HERE/smoke-target-exec.sh" > "$t/smoke.
 "$S/bin/rustc" -C linker="$c22" "$t/smoke.rs" -o "$t/smoke"
 out="$("$t/smoke")"
 [ "$out" = 'smoke Some(109) 42' ] || fail "native output: $out"
+sh "$HERE/target/target-core2.sh" "$S/bin/rustc" > "$t/out" 2>&1 || { cat "$t/out"; fail "the native stage's rustc targets 10.9 and core2 by default (patch 0003)"; }
+grep '^PASS' "$t/out"
 echo "(compiled and ran on an x86_64 Mac)"
 echo "OK smoke-native"
