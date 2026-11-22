@@ -26,7 +26,7 @@ cc1 -march=core2 -fembed-bitcode "$t/opt.c" -o "$t/opt.o"
 
 prefix good "$t/core2.o"
 out="$(sh "$A" "$t/good" 2>&1)" || fail "a core2 rlib passes: $out"
-case "$out" in "core2: 1 objects, 0 executables clean") : ;; *) fail "a clean run says what it checked: $out" ;; esac
+case "$out" in *"core2: 1 objects, 0 executables clean") : ;; *) fail "a clean run says what it checked: $out" ;; esac
 
 prefix bad "$t/penryn.o"
 if out="$(sh "$A" "$t/bad" 2>&1)"; then fail "a penryn rlib fails: $out"; fi
@@ -52,7 +52,27 @@ fixture_cc "$t/main.o" "$t/penryn.o" -o "$t/exe/bin/tool" || fail "could not lin
 if out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/exe" 2>&1)"; then fail "an executable with SSE4.1 in an unlisted function fails: $out"; fi
 case "$out" in *"core2: $t/exe/bin/tool vmin uses p"*) : ;; *) fail "the executable's offender names the file and the function: $out" ;; esac
 out="$(CORE2_ALLOWLIST="$t/allow" sh "$A" "$t/exe" 2>&1)" || fail "a listed function may hold SSE4.1: $out"
-case "$out" in "core2: 0 objects, 1 executables clean") : ;; *) fail "the clean executable run says what it checked: $out" ;; esac
+case "$out" in *"core2: 0 objects, 1 executables clean") : ;; *) fail "the clean executable run says what it checked: $out" ;; esac
+
+mkdir -p "$t/junk/bin"; printf '\317\372\355\376garbage' > "$t/junk/bin/tool"
+if out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/junk" 2>&1)"; then fail "a Mach-O the disassembler cannot read is an error, not clean: $out"; fi
+
+prefix owndis "$t/penryn.o"
+d="$t/owndis/lib/rustlib/x86_64-apple-darwin/bin"; mkdir -p "$d"
+printf '#!/bin/sh\n: > "%s"\nexec "%s" "$@"\n' "$t/own-used" "$CLANGDIR/bin/llvm-dis" > "$d/llvm-dis"; chmod +x "$d/llvm-dis"
+if out="$(env -u LLVM_DIS sh "$A" "$t/owndis" 2>&1)"; then fail "the penryn object still fails with the prefix's own llvm-dis: $out"; fi
+[ -e "$t/own-used" ] || fail "the prefix's own llvm-dis, which matches its rustc's LLVM, reads its bitcode: $out"
+
+cat > "$t/hashed.c" <<'C'
+void hv(int *a, const int *b, int n) __asm__("__ZN4core3fmt5write17h0123456789abcdefE.llvm.4242");
+void hv(int *a, const int *b, int n) { for (int i = 0; i < n; i++) { int x = a[i] < b[i] ? a[i] : b[i]; a[i] = x * b[i]; } }
+C
+cc1 -march=penryn "$t/hashed.c" -o "$t/hashed.o"
+prefix hashed "$t/hashed.o"
+if out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/hashed" 2>&1)"; then fail "the hashed fixture fails unlisted: $out"; fi
+case "$out" in *") core::fmt::write uses p"*) : ;; *) fail "the name drops the build-specific .llvm.N suffix and ::h hash: $out" ;; esac
+printf 'core::fmt::write\n' > "$t/allow2"
+out="$(CORE2_ALLOWLIST="$t/allow2" sh "$A" "$t/hashed" 2>&1)" || fail "an allowlist entry survives a rebuild's new .llvm.N and hash: $out"
 
 mkdir -p "$t/none"
 if out="$(sh "$A" "$t/none" 2>&1)"; then fail "a prefix with nothing to check is an error, not clean: $out"; fi
