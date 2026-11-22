@@ -43,23 +43,30 @@ done
 OD="${LLVM_OBJDUMP:-$B/llvm-objdump}"
 
 magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
+# platform: macOS keeps a switch's jump table inside the function; --macho reads LC_DATA_IN_CODE and
+#           prints it as .long, where plain -d decodes its offsets as xbegin, xabort or AVX-512
+# platform: --macho -d reads only __text; libc++ keeps its overridable operator new in __lcxx_override
 # platform: in a binary stripped of local symbols llvm-objdump credits a private function to the symbol
 #           before it; LC_FUNCTION_STARTS still marks where each function begins, so one with no symbol
 #           of its own is reported as unnamed, and no allowlisted neighbour covers it
 offenders() {
-  "$OD" -d --no-show-raw-insn "$1" > "$t/dis" 2> "$t/dis.err" \
-    || { echo "core2: llvm-objdump cannot disassemble $1: $(head -1 "$t/dis.err")" >&2; exit 1; }
-  awk -v re="$SET" -v sf="${2:-}" '
+  set -- "$1" "${2:-}" $("$OTOOL" -l "$1" 2>/dev/null | awk '$1 == "sectname" { s = $2 } $1 == "segname" { g = $2 }
+    $1 == "flags" && $2 ~ /^0x8/ && s != "__text" { print "--section=" g "," s }' | sort -u)
+  _f="$1"; _s="$2"; shift 2
+  "$OD" --macho -d --no-show-raw-insn "$@" "$_f" > "$t/dis" 2> "$t/dis.err" \
+    && grep -Eq '^(Contents of )?\(__TEXT,[^)]*\) section$' "$t/dis" \
+    || { echo "core2: llvm-objdump cannot disassemble $_f: $(cat "$t/dis.err" "$t/dis" | head -1)" >&2; exit 1; }
+  awk -v re="$SET" -v sf="$_s" '
     function pad(a) { a = sprintf("%16s", a); gsub(/ /, "0", a); return a }
     BEGIN { n = 0; k = 1; if (sf != "") while ((getline l < sf) > 0) if (l ~ /^[0-9a-f]+$/) s[++n] = pad(l) }
-    /^[0-9a-f]+ <.*>:$/ { f = $2; sub(/^</, "", f); sub(/>:$/, "", f); fa = pad($1); next }
-    /^ *[0-9a-f]+:/ { a = $1; sub(/:$/, "", a); a = pad(a); g = f
+    /^ *[0-9a-f]+:\t/ { a = $1; sub(/:$/, "", a); a = pad(a); if (st) { fa = a; st = 0 }; g = f
       if (n) { while (k < n && s[k + 1] <= a) k++
         if (s[k] <= a && s[k] > fa) { u = s[k]; sub(/^0+/, "", u); g = "unnamed-function@0x" u } }
       sub(/^ *[0-9a-f]+:[ \t]*/, ""); i = 1
       while (i < NF && $i ~ /^(rex64|rex|data16|data32|addr16|addr32|lock|rep|repe|repz|repne|repnz|notrack|xacquire|xrelease|bnd|cs|ds|es|fs|gs|ss|[{](vex|vex2|vex3|evex)[}])$/) i++
       m = $i
-      if ((m ~ re || (m == "pextrw" && $NF ~ /[(]/)) && m != "verr" && m != "verw" && !(g in seen)) { seen[g] = 1; print g, m } }' "$t/dis"
+      if ((m ~ re || (m == "pextrw" && $NF ~ /[(]/)) && m != "verr" && m != "verw" && !(g in seen)) { seen[g] = 1; print g, m }; next }
+    /^[^ \t][^\t]*:$/ { f = $0; sub(/:$/, "", f); st = 1 }' "$t/dis"
 }
 demangle() { "$CXXFILT" -_ | sed -E 's/^_//; s/ \(\.llvm\.[0-9]+\)$//; s/ \[clone \.llvm\.[0-9]+\]$//; s/\.llvm\.[0-9]+$//; s/::h[0-9a-f]{16}$//'; }
 # platform: clang22's Linux archive has no llvm-objcopy; the section's offset and size come from otool
@@ -75,7 +82,7 @@ opted() {
     /^attributes #[0-9]+ = / { g = $2; c = ""; f = ""
       if (match($0, /"target-cpu"="[^"]*"/)) c = substr($0, RSTART + 14, RLENGTH - 15)
       if (match($0, /"target-features"="[^"]*"/)) f = substr($0, RSTART + 19, RLENGTH - 20)
-      if ((c == "core2" || c == "x86-64" || c == "generic") && f ~ /(^|,)\+(sse4\.1|sse4\.2|popcnt|avx|avx2|avx512[a-z0-9]*|fma|f16c|bmi|bmi2|lzcnt|aes|pclmul|sha|movbe|adx|rdrnd|rdseed)(,|$)/) ok[g] = 1
+      if ((c == "core2" || c == "x86-64" || c == "generic") && f ~ /(^|,)\+(sse4\.1|sse4\.2|sse4a|popcnt|crc32|avx[a-z0-9.-]*|fma4?|f16c|xop|tbm|bmi2?|lzcnt|aes|vaes|pclmul|vpclmulqdq|gfni|sha|sha512|sm3|sm4|movbe|adx|rdrnd|rdseed|rdpid|xsave[a-z]*|rtm|fsgsbase|clflushopt|clwb|amx[a-z0-9-]*|kl|widekl|cmpccxadd)(,|$)/) ok[g] = 1
       next }
     /^define / { if (!match($0, /@("[^"]*"|[-a-zA-Z$._0-9]+)/)) next
       n = substr($0, RSTART + 1, RLENGTH - 1); gsub(/"/, "", n)
