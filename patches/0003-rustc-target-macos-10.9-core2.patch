@@ -1,0 +1,49 @@
+Subject: rustc: the x86_64 macOS target defaults to 10.9 and core2
+
+Mavergreen's floor is Mac OS X 10.9, which Core 2 (Merom) Macs run, and they lack SSE4.1:
+std and every program compiled for penryn can die there with SIGILL. rustc's minimum
+for every Mac target was 10.12, so std's objects recorded minos 10.12. arm64 keeps 11.0
+through minimum_deployment_target.
+
+--- a/compiler/rustc_target/src/spec/base/apple/mod.rs
++++ b/compiler/rustc_target/src/spec/base/apple/mod.rs
+@@ -64,7 +64,9 @@
+             // all x86_64/x86 CPUs must be running at least penryn
+             // https://github.com/llvm/llvm-project/blob/01f924d0e37a5deae51df0d77e10a15b63aa0c0f/clang/lib/Driver/ToolChains/Arch/X86.cpp#L79-L82
+             Self::I386 | Self::I686 => "penryn",
+-            Self::X86_64 => "penryn",
++            // Mavergreen: x86_64 macOS reaches back to 10.9, which Core 2 (Merom) Macs run,
++            // and they lack SSE4.1, so the baseline is core2.
++            Self::X86_64 => "core2",
+             // Note: `core-avx2` is slightly more advanced than `x86_64h`, see
+             // comments (and disabled features) in `x86_64h_apple_darwin` for
+             // details. It is a higher baseline then `penryn` however.
+@@ -308,7 +310,7 @@
+         // $ rustc --print deployment-target
+         // ```
+         let (major, minor, patch) = match os {
+-            Os::MacOs => (10, 12, 0),
++            Os::MacOs => (10, 9, 0),
+             Os::IOs => (10, 0, 0),
+             Os::TvOs => (10, 0, 0),
+             Os::WatchOs => (5, 0, 0),
+--- a/compiler/rustc_target/src/spec/targets/x86_64_apple_darwin.rs
++++ b/compiler/rustc_target/src/spec/targets/x86_64_apple_darwin.rs
+@@ -6,7 +6,7 @@
+     Target {
+         llvm_target,
+         metadata: TargetMetadata {
+-            description: Some("x86_64 Apple macOS (10.12+, Sierra+)".into()),
++            description: Some("x86_64 Apple macOS (10.9+, Mavericks+)".into()),
+             tier: Some(2),
+             host_tools: Some(true),
+             std: Some(true),
+@@ -17,7 +17,7 @@
+         arch,
+         options: TargetOptions {
+             mcount: "\u{1}mcount".into(),
+-            max_atomic_width: Some(128), // penryn+ supports cmpxchg16b
++            max_atomic_width: Some(128), // core2+ supports cmpxchg16b
+             supported_sanitizers: SanitizerSet::ADDRESS
+                 | SanitizerSet::CFI
+                 | SanitizerSet::LEAK
