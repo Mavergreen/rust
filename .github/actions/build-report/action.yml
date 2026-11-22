@@ -1,0 +1,23 @@
+name: build-report
+description: Report a rust build's wall time (Build alone, not Package), ccache statistics and disk use
+inputs:
+  ccache-stats:
+    description: the command that prints ccache's statistics where the build's ccache ran
+    default: ccache -sv
+runs:
+  using: composite
+  steps:
+    - name: Wall time, ccache and disk
+      shell: bash
+      env:
+        CCACHE_STATS: ${{ inputs.ccache-stats }}
+      run: |
+        if [ -f "$RUNNER_TEMP/start" ]; then
+          end="$(cat "$RUNNER_TEMP/end" 2>/dev/null || date -u +%s)"
+          echo "build wall time: $(( (end - $(cat "$RUNNER_TEMP/start")) / 60 )) min"
+        fi
+        eval "$CCACHE_STATS" || true
+        du -sh "$HOME/.cache/ccache" 2>/dev/null || true
+        [ ! -f "$RUNNER_TEMP/disk-used" ] || echo "disk peak on the work volume: $(( $(sort -n "$RUNNER_TEMP/disk-used" | tail -1) / 1048576 )) GB used"
+        du -sh "$MAVERICKS_WORK" 2>/dev/null || true
+        df -h / /mnt
