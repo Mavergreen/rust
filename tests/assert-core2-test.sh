@@ -89,7 +89,6 @@ cat > "$t/ins.s" <<'S'
  \insn
  ret
 .endm
-one _t_tzcnt, tzcntl %eax, %ecx
 one _t_rdtscp, rdtscp
 one _t_xgetbv, xgetbv
 one _t_xsetbv, xsetbv
@@ -114,6 +113,7 @@ one _t_movntss, movntss %xmm0, (%rax)
 _t_ok:
  pextrw $1, %xmm0, %eax
  pminub %xmm1, %xmm0
+ tzcntl %eax, %ecx
  rep stosq
  lock xaddl %eax, (%rdi)
  ret
@@ -121,10 +121,10 @@ S
 "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -c "$t/ins.s" -o "$t/ins.o"
 prefix ins "$t/ins.o"
 out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/ins" 2>&1)" || :
-for f in tzcnt rdtscp xgetbv xsetbv xsave xrstor xbegin xend xabort xtest rdfsbase wrgsbase clflushopt clwb rdpid gf2p8 pextrwmem extrq insertq movntss; do
+for f in rdtscp xgetbv xsetbv xsave xrstor xbegin xend xabort xtest rdfsbase wrgsbase clflushopt clwb rdpid gf2p8 pextrwmem extrq insertq movntss; do
   case "$out" in *" t_$f uses "*) : ;; *) fail "t_$f holds an instruction a Core 2 lacks: $out" ;; esac
 done
-case "$out" in *" t_ok uses "*) fail "SSE2 pminub, the register form of pextrw, rep and lock are all core2: $out" ;; esac
+case "$out" in *" t_ok uses "*) fail "SSE2 pminub, the register form of pextrw, rep, lock and tzcnt (LLVM emits it for core2: a Core 2 runs it as bsf) are all core2: $out" ;; esac
 
 mkdir -p "$t/fake"
 printf '#!/bin/sh\nfor a do f="$a"; done\nprintf "%%s:\\tfile format mach-o 64-bit x86-64\\n\\n0000000000000000 <_p>:\\n       0:      \\trex64\\tpminsd\\t%%%%xmm1, %%%%xmm0\\n       5:      \\tdata16\\tptest\\t%%%%xmm1, %%%%xmm0\\n" "$f"\n' > "$t/fake/llvm-objdump"; chmod +x "$t/fake/llvm-objdump"
