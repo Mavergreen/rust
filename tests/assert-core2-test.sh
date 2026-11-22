@@ -15,7 +15,7 @@ cat > "$t/opt.c" <<'C'
 __attribute__((target("sse4.1"))) __m128i fastmin(__m128i a, __m128i b) { return _mm_min_epi32(a, b); }
 int plain(int a) { return a + 1; }
 C
-cc1() { "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -O2 -c "$@"; }
+cc1() { "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -isysroot "$S9" -O2 -c "$@"; }
 prefix() {
   d="$t/$1/lib/rustlib/x86_64-apple-darwin/lib"; mkdir -p "$d" "$t/$1/bin"; shift
   "$CLANGDIR/bin/llvm-ar" rc "$d/libfix.rlib" "$@"
@@ -45,6 +45,10 @@ case "$out" in *"libfix.rlib"*" vmin uses p"*"(allowlist)"*) : ;; *) fail "the f
 case "$out" in *"libfix.rlib(pp.o) vminpp(int*, int const*, int) uses p"*"(allowlist)"*) : ;; *) fail "a demangled name with spaces is printed whole: $out" ;; esac
 printf 'vmin\nvminpp(int*, int const*, int)\n' > "$t/allow"
 out="$(CORE2_ALLOWLIST="$t/allow" sh "$A" "$t/nobc" 2>&1)" || fail "an object with no readable bitcode passes when its function is listed: $out"
+
+printf '#!/bin/sh\n: > "%s"\nexec "%s" "$@"\n' "$t/cxxfilt-used" "$CLANGDIR/bin/llvm-cxxfilt" > "$t/cxxfilt"; chmod +x "$t/cxxfilt"
+CORE2_ALLOWLIST="$t/allow" LLVM_CXXFILT="$t/cxxfilt" sh "$A" "$t/nobc" > /dev/null 2>&1 || :
+[ -e "$t/cxxfilt-used" ] || fail "LLVM_CXXFILT names the demangler first: clang22's Linux archive has no llvm-cxxfilt"
 
 mkdir -p "$t/exe/bin"
 printf 'void vmin(int *, const int *, int);\nint main(int c, char **v) { int a[64] = {c}, b[64] = {1}; (void)v; vmin(a, b, 64); return a[0]; }\n' > "$t/main.c"
