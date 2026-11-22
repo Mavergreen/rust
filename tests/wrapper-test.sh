@@ -241,4 +241,14 @@ case "$out" in *"-Wl,-force_load,"*"-framework -C link-arg=CoreFoundation"*) : ;
 mkdir -p "$t/g"; : > "$t/g/--no-default-config"
 out="$(cd "$t/g" && "$t/native/bin/rustc" -C 'link-args=*' x.rs)"
 case "$out" in *"-C linker=$C22 "*) : ;; *) fail "case 44 a link-args word is not a glob: a file named --no-default-config does not opt out: $out" ;; esac
+for o in "-C link_arg=--no-default-config" "-Clink_arg=--no-default-config" "--codegen=link_arg=--no-default-config" "-C link_args=--no-default-config"; do
+  rm "$NL"; mv "$t/clang22" "$t/clang22.away"
+  out="$("$t/native/bin/rustc" $o x.rs 2>&1)" || { mv "$t/clang22.away" "$t/clang22"; : > "$NL"; fail "case 45 '$o': $out"; }
+  mv "$t/clang22.away" "$t/clang22"; : > "$NL"
+  passes "case 45 '$o' opts out like its hyphenated spelling" "$out" $o x.rs
+done
+for fl in "-C linker_flavor=ld64.lld" "-Clinker_flavor=ld64.lld" "--codegen=linker_flavor=ld64.lld"; do
+  out="$("$t/none/rust/bin/rustc" $fl x.rs 2>&1)" || fail "case 46 '$fl' chooses the link, so it needs no clang22: $out"
+  case "$out" in *"-C linker="*) fail "case 46 '$fl' names a flavour; the wrapper adds no linker: $out" ;; esac
+done
 echo "OK wrapper-test"
