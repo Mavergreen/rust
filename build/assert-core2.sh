@@ -11,7 +11,7 @@
 #          line per offender and exits 1. A feature every function in an object enables was set for the
 #          whole object, so it opts no function in. LLVM_DIS names the llvm-dis to try first, before the
 #          prefix's own, the build tree's and clang22's; LLVM_OBJDUMP replaces clang22's llvm-objdump for
-#          disassembly. On Linux, CLANGDIR names clang22.
+#          disassembly; LLVM_CXXFILT names the demangler to try first. On Linux, CLANGDIR names clang22.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"; macho_tools
@@ -30,9 +30,16 @@ AL="${CORE2_ALLOWLIST:-$HERE/core2-allowlist.txt}"
 #           it as bsf, and the code it emits presets the result a zero input leaves unchanged
 SET='^(v.*|pblendvb|pblendw|blendp[sd]|blendvp[sd]|ptest|pmin(sb|sd|uw|ud)|pmax(sb|sd|uw|ud)|pmulld|pmuldq|pextr[bdq]|pinsr[bdq]|round[sp][sd]|dpp[sd]|insertps|extractps|pcmpeqq|pcmpgtq|packusdw|pmov[sz]x(bw|bd|bq|wd|wq|dq)|mpsadbw|phminposuw|movntdqa|crc32[bwlq]?|popcnt[wlq]?|pcmp[ei]str[im]|lzcnt[wlq]?|andn[lq]|bextr[lq]?|blsi[lq]?|blsmsk[lq]?|blsr[lq]?|bzhi[lq]?|pdep[lq]?|pext[lq]?|rorx[lq]?|sarx[lq]?|shlx[lq]?|shrx[lq]?|mulx[lq]?|movbe[wlq]?|adcx[lq]?|adox[lq]?|aes(enc|enclast|dec|declast|imc|keygenassist)|pclmulqdq|sha1(rnds4|nexte|msg1|msg2)|sha256(rnds2|msg1|msg2)|rdrand[wlq]?|rdseed[wlq]?|rdtscp|xgetbv|xsetbv|xsave(c|s|opt)?(64)?|xrstors?(64)?|xbegin|xend|xabort|xtest|(rd|wr)(fs|gs)base[lq]?|clflushopt|clwb|rdpid[lq]?|gf2p8(affineqb|affineinvqb|mulb)|extrq|insertq|movnts[sd])$'
 t="$(mktemp -d "${TMPDIR:-/tmp}/assert-core2.XXXXXX")"; trap 'rm -rf "$t"' EXIT
-for _x in llvm-objdump llvm-ar llvm-objcopy llvm-cxxfilt; do
+for _x in llvm-objdump llvm-ar; do
   [ -x "$B/$_x" ] || { echo "core2: no $_x in $B (clang22's tools)" >&2; exit 1; }
 done
+# platform: clang22's Linux archive has no llvm-cxxfilt; rust's host LLVM build and binutils' c++filt
+#           (Rust v0 since 2.36) demangle the same names
+CXXFILT=""
+for _c in ${LLVM_CXXFILT:+"$LLVM_CXXFILT"} "$B/llvm-cxxfilt" ${DIS:+"$(dirname "$DIS")/llvm-cxxfilt"} c++filt; do
+  case "$(echo __ZN4core3fmt5write17h0123456789abcdefE | "$_c" -_ 2>/dev/null)" in core::fmt::write*) CXXFILT="$_c"; break ;; esac
+done
+[ -n "$CXXFILT" ] || { echo "core2: no demangler runs here (llvm-cxxfilt or c++filt)" >&2; exit 1; }
 OD="${LLVM_OBJDUMP:-$B/llvm-objdump}"
 
 magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
@@ -54,7 +61,15 @@ offenders() {
       m = $i
       if ((m ~ re || (m == "pextrw" && $NF ~ /[(]/)) && m != "verr" && m != "verw" && !(g in seen)) { seen[g] = 1; print g, m } }' "$t/dis"
 }
-demangle() { "$B/llvm-cxxfilt" -_ | sed -E 's/^_//; s/ \(\.llvm\.[0-9]+\)$//; s/\.llvm\.[0-9]+$//; s/::h[0-9a-f]{16}$//'; }
+demangle() { "$CXXFILT" -_ | sed -E 's/^_//; s/ \(\.llvm\.[0-9]+\)$//; s/ \[clone \.llvm\.[0-9]+\]$//; s/\.llvm\.[0-9]+$//; s/::h[0-9a-f]{16}$//'; }
+# platform: clang22's Linux archive has no llvm-objcopy; the section's offset and size come from otool
+bitcode() {
+  _r="$("$OTOOL" -l "$1" | awk '$1 == "sectname" { b = ($2 == "__bitcode") } b && $1 == "segname" && $2 != "__LLVM" { b = 0 }
+    b && $1 == "size" { z = $2 } b && $1 == "offset" { print $2, z; exit }')"
+  [ -n "$_r" ] || return 1
+  set -- "$1" $_r
+  tail -c +$(($2 + 1)) "$1" | head -c $(($3)) > "$t/bc"
+}
 opted() {
   awk '
     /^attributes #[0-9]+ = / { g = $2; c = ""; f = ""
@@ -92,13 +107,13 @@ for r in "$P"/lib/rustlib/x86_64-apple-darwin/lib/*.rlib; do
     no=$((no + 1))
     offenders "$o" > "$t/off"; [ -s "$t/off" ] || continue
     rule=allowlist
-    if "$B/llvm-objcopy" --dump-section __LLVM,__bitcode="$t/bc" "$o" "$t/o.out" 2>/dev/null && [ -s "$t/bc" ] \
+    if bitcode "$o" && [ -s "$t/bc" ] \
        && [ -n "$DIS" ] && "$DIS" "$t/bc" -o "$t/ll" 2>/dev/null; then
       rule=bitcode; opted "$t/ll" > "$t/ok"
     else
       cut -d' ' -f1 "$t/off" > "$t/syms"; listed "$t/syms" > "$t/ok"
     fi
-    rm -f "$t/bc" "$t/ll" "$t/o.out"
+    rm -f "$t/bc" "$t/ll"
     report "$r($(basename "$o"))" "$t/off" "$t/ok" "$rule"
   done
 done
