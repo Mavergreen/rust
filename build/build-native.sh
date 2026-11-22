@@ -66,6 +66,7 @@ cp -f "$RECAULK_A" "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 wrap_rustc "$STAGE" always
 wrap_linking_tool "$STAGE" clippy-driver always
 prune_proc_macro_dylibs "$STAGE"
+rewrite_install_records "$NATIVE_STAGE_ROOT" "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
 guard_prefix "$STAGE"
 sh "$HERE/verify-relocatable.sh" "$STAGE"

@@ -57,6 +57,7 @@ audit_linux_elf "$STAGE"
 find "$STAGE/lib/rustlib/$TARGET_TRIPLE/lib" -type f -name '*.dylib' > "$WORK/darwin-dylibs"
 [ -s "$WORK/darwin-dylibs" ] || { echo "FATAL: no $TARGET_TRIPLE dylib under $STAGE/lib/rustlib -- nothing guarded" >&2; exit 1; }
 tr '\n' '\0' < "$WORK/darwin-dylibs" | MAVERICKS_ALLOW_ARCHS=x86_64 xargs -0 sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh"
+rewrite_install_records "$STAGE_ROOT" "$STAGE"
 sh "$HERE/verify-relocatable.sh" "$STAGE"
 ( PATH="$MAKE_BIN:$CMAKE_BIN:$PATH"; MAKE="$MAKE_BIN/make"; CMAKE="$CMAKE_BIN/cmake"
   record_build_tools "$STAGE_ROOT/build-tools.txt" )
