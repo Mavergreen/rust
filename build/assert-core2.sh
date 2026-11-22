@@ -31,7 +31,7 @@ for _x in llvm-objdump llvm-ar llvm-objcopy llvm-cxxfilt; do
 done
 
 magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
-offenders() {  # offenders FILE: "SYMBOL MNEMONIC" for each function holding an instruction core2 lacks
+offenders() {
   "$B/llvm-objdump" -d --no-show-raw-insn "$1" > "$t/dis" 2> "$t/dis.err" \
     || { echo "core2: llvm-objdump cannot disassemble $1: $(head -1 "$t/dis.err")" >&2; exit 1; }
   awk -v re="$SET" '
@@ -40,7 +40,7 @@ offenders() {  # offenders FILE: "SYMBOL MNEMONIC" for each function holding an 
       if (m ~ re && m != "verr" && m != "verw" && !(f in seen)) { seen[f] = 1; print f, m } }' "$t/dis"
 }
 demangle() { "$B/llvm-cxxfilt" -_ | sed -E 's/^_//; s/ \(\.llvm\.[0-9]+\)$//; s/\.llvm\.[0-9]+$//; s/::h[0-9a-f]{16}$//'; }
-opted() {  # opted LL: the Mach-O symbols compiled for core2 plus a later feature by their own attribute
+opted() {
   awk '
     /^attributes #[0-9]+ = / { g = $2; c = ""; f = ""
       if (match($0, /"target-cpu"="[^"]*"/)) c = substr($0, RSTART + 14, RLENGTH - 15)
@@ -52,14 +52,14 @@ opted() {  # opted LL: the Mach-O symbols compiled for core2 plus a later featur
       if (match($0, /\) [^{]*#[0-9]+/)) { a = substr($0, RSTART, RLENGTH); sub(/.*#/, "#", a); fn[n] = a } }
     END { for (n in fn) if (fn[n] in ok) print "_" n }' "$1"
 }
-listed() {  # listed SYMBOLS-FILE: the symbols whose demangled name the allowlist holds
+listed() {
   demangle < "$1" > "$1.d"
   paste -d ' ' "$1" "$1.d" | while read -r s d; do
     grep -qxF -- "$d" "$AL" 2>/dev/null && printf '%s\n' "$s"
   done
   return 0
 }
-report() {  # report LABEL OFFENDERS ALLOWED RULE
+report() {
   awk 'FILENAME == ARGV[1] { a[$1] = 1; next } !($1 in a)' "$3" "$2" > "$t/bad"
   [ -s "$t/bad" ] || return 0
   cut -d' ' -f1 "$t/bad" | demangle > "$t/badd"

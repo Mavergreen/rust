@@ -15,7 +15,7 @@ cat > "$t/opt.c" <<'C'
 __attribute__((target("sse4.1"))) __m128i fastmin(__m128i a, __m128i b) { return _mm_min_epi32(a, b); }
 C
 cc1() { "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -O2 -c "$@"; }
-prefix() {  # prefix NAME OBJECT...: a prefix whose only rlib holds the objects
+prefix() {
   d="$t/$1/lib/rustlib/x86_64-apple-darwin/lib"; mkdir -p "$d" "$t/$1/bin"; shift
   "$CLANGDIR/bin/llvm-ar" rc "$d/libfix.rlib" "$@"
 }
