@@ -187,15 +187,16 @@ pin_onbox_tools() {
 
 # platform: with no SDKROOT rustc runs xcrun for every Apple link's SDK, and a Linux host has no xcrun;
 #           rustc reads SDKROOT only for an Apple target, and the build triple's cc and c++ drop it
-# platform: cargo splits target rustflags on spaces
+# platform: rustc hands SDKROOT to the linker; target rustflags would carry this host path into every
+#           crate's -C metadata, so a Linux-built std would hash unlike a 10.9-built one
+# platform: cc-rs splits CFLAGS on spaces
 pin_linux_build_sdk() {
   [ "$1" = x86_64-unknown-linux-gnu ] || return 0
-  case "$2" in *" "*) echo "FATAL: the SDK path '$2' has a space, which cargo would split in target rustflags" >&2; return 1 ;; esac
+  case "$2" in *" "*) echo "FATAL: the SDK path '$2' has a space, which cc-rs would split in CFLAGS" >&2; return 1 ;; esac
   SDKROOT="$2"
-  CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$2"
   CFLAGS_x86_64_apple_darwin="-isysroot $2 -mmacosx-version-min=$MACOS_MIN"
   CXXFLAGS_x86_64_apple_darwin="$CFLAGS_x86_64_apple_darwin"
-  export SDKROOT CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
+  export SDKROOT CFLAGS_x86_64_apple_darwin CXXFLAGS_x86_64_apple_darwin
 }
 
 # platform: clang-22's clang.cfg looks for <bin>/../SDKs/MacOSX10.9.sdk; its pkg ships SDKs as a link
@@ -435,6 +436,16 @@ relocate_prefix() {
     rel="$(loader_rel "$_p" "$f")"
     "${OTOOL:-otool}" -l "$f" 2>/dev/null | grep -qF " $rel" || "$NT" -add_rpath "$rel" "$f" 2>/dev/null || true
   done
+}
+
+# platform: rust-installer writes each manifest-* with DESTDIR's absolute paths and logs its own
+#           commands to install.log; uninstall.sh reads the manifests at the installed prefix
+rewrite_install_records() {
+  for _m in "$2"/lib/rustlib/manifest-*; do
+    [ -f "$_m" ] || continue
+    sed "s|^\([a-z]*:\)$1/|\1/|" "$_m" > "$_m.new" && mv "$_m.new" "$_m"
+  done
+  rm -f "$2/lib/rustlib/install.log"
 }
 
 staged_complete() {

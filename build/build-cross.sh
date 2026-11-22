@@ -84,6 +84,7 @@ wrap_linking_tool "$STAGE" clippy-driver gated
 prune_proc_macro_dylibs "$STAGE"
 
 echo "== relocate (bundle runtimes, rewrite rpaths) =="
+rewrite_install_records "$STAGE_ROOT" "$STAGE"
 relocate_prefix "$STAGE" "$CLANGDIR"
 
 guard_prefix "$STAGE"
