@@ -37,6 +37,9 @@ for p in "$ROOT"/patches/*.patch; do
   [ -f "$p" ] || continue
   awk -v d="$t/src/rustc-$V-src" '/^--- a\//{f=d "/" substr($2, 3); sub(/\/[^\/]*$/, "", f); system("mkdir -p \"" f "\""); f=d "/" substr($2, 3); h=0; next}
     /^@@/{h=1; next} h && /^[ -]/{print substr($0, 2) >> f}' "$p"
+  sed -n 's|^+++ b/vendor/\([^/]*\)/\([^[:space:]]*\).*|\1 \2|p' "$p" | while read -r c f; do
+    printf '{"files":{"%s":"%064d"},"package":"%064d"}' "$f" 0 0 > "$t/src/rustc-$V-src/vendor/$c/.cargo-checksum.json"
+  done
 done
 ( cd "$t/src" && tar -cf "$t/src.tar" "rustc-$V-src" )
 rm -f "$t/sy/mavericks_fetch.sh"
