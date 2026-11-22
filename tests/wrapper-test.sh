@@ -81,7 +81,7 @@ stub_linker "$t/lk/cc-refuses" '"unknown argument: -###"' 1
 ln -s "$t/lk/clang++" "$t/farm2/clang++-22"
 D="$t/lk/clang++"
 defers() {
-  case "$2" in *"-C link-arg=-mmacosx-version-min=10.9"*) : ;; *) fail "$1: a deferred link still needs rustc's 10.12 overridden: $2" ;; esac
+  case "$2" in *"-C link-arg=-mmacosx-version-min=10.9"*) : ;; *) fail "$1: a deferred link still pins the 10.9 floor against a higher MACOSX_DEPLOYMENT_TARGET: $2" ;; esac
   case "$2" in *force_load*|*-framework*|*-lobjc*) fail "$1: a linker that already links librecaulk.a must get no second copy (lld: duplicate symbol): $2" ;; esac
 }
 out="$("$t/native/bin/rustc" -C linker="$D" x.rs)"; defers "case 12 -C linker=<clang22>" "$out"

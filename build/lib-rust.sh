@@ -47,8 +47,9 @@ sysconfdir = "etc"
 
 [rust]
 EOF
-    # platform: built on 10.9 itself, bootstrap's own build scripts compile and link at the 10.9 floor,
-    #           below rustc's 10.12; rustc and clang++ warn about it, and bootstrap denies warnings
+    # platform: built on 10.9 itself, bootstrap's own build scripts compile and link at the 10.9 floor
+    #           with stage0, the unpatched prebuilt, whose minimum is 10.12 (patch 0003 lowers only
+    #           ours); rustc and clang++ warn about it, and bootstrap denies warnings
     if [ "$_build" = "$TARGET_TRIPLE" ]; then printf 'deny-warnings = false\n'; fi
     # platform: the source tarball's dist profile compresses debuginfo with zlib, which bootstrap
     #           applies to non-Apple targets only, and clang22's ld.lld has no zlib
@@ -75,9 +76,9 @@ ar = "$_clang/bin/llvm-ar"
 ranlib = "$_clang/bin/llvm-ranlib"
 linker = "$_clang/bin/clang++"
 EOF
-    # platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
-    #           the linker driver; since 22.1.8-mavericks.8 clang-22's cfgs let a later version win,
-    #           and a -C link-arg comes after rustc's own
+    # platform: rustc's x86_64-apple-darwin default is 10.9 (patch 0003), but stage0's is 10.12 and a
+    #           MACOSX_DEPLOYMENT_TARGET set higher would raise a link; since 22.1.8-mavericks.8
+    #           clang-22's cfgs let a later version win, and a -C link-arg comes after rustc's own
     printf 'rustflags = ["-Clink-arg=-mmacosx-version-min=%s"]\n' "$MACOS_MIN"
     if [ "$_build" = x86_64-unknown-linux-gnu ]; then
       printf '\n[target.x86_64-unknown-linux-gnu]\ncc = "%s"\ncxx = "%s"\nar = "%s/bin/llvm-ar"\nranlib = "%s/bin/llvm-ranlib"\nlinker = "%s"\n' \
@@ -267,8 +268,8 @@ clang_work_copy() {
 install_recaulk_into_clang() { cp -f "$1" "$2/lib/librecaulk.a"; }
 
 # platform: rustc puts -lSystem before -C link-args, and a modern SDK's libSystem exports clock_gettime
-# platform: rustc clamps x86_64-apple-darwin to 10.12 and passes -mmacosx-version-min=10.12.0 to
-#           the linker driver; the last -mmacosx-version-min on the line wins
+# platform: rustc's x86_64-apple-darwin default is 10.9 (patch 0003), and a MACOSX_DEPLOYMENT_TARGET
+#           set higher would raise a link; the last -mmacosx-version-min on the line wins
 # platform: -force_load takes every member of librecaulk.a, its C++ catch rules among them, and those
 #           call 10.9's /usr/lib/libc++abi.dylib
 wrap_linking_tool() {
