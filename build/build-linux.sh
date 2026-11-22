@@ -9,6 +9,7 @@
 set -eu
 RUST_VARIANT=linux; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"
+export_source_date_epoch
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 [ "$(uname -s)/$(uname -m)" = Linux/x86_64 ] \
   || { echo "FATAL: the Linux-hosted toolchain builds on x86_64 Linux (got $(uname -s) $(uname -m))" >&2; exit 1; }

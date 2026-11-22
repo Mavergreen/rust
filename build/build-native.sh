@@ -8,6 +8,7 @@
 set -eu
 RUST_VARIANT=native; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/versions.sh"; . "$HERE/lib-rust.sh"
+export_source_date_epoch
 export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
 STAGE="$NATIVE_STAGE_ROOT$NATIVE_PREFIX"
