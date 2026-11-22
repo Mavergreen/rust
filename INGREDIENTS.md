@@ -60,6 +60,15 @@ rustc links Recaulk's `librecaulk.a` into every x86_64 binary it links, one of t
 - **Any other linker** (`cc`, named explicitly): the wrapper force-loads the `librecaulk.a` that
   ships in `lib/rustlib/x86_64-apple-darwin/lib/`, with the frameworks it needs.
 
+**`--no-default-config` on a link means the Mavergreen toolchain adds nothing of its own: no target,
+SDK, minimum, Recaulk, frameworks or libc++. The caller supplies all of it.** clang22 already does
+this, and the rustc and clippy-driver wrappers honour the same flag when it reaches them as a link
+argument (`-C link-arg=--no-default-config`, or one word of `-C link-args=`, directly or from an
+`@argfile`) on an x86_64 Mac link. They then run rustc with the arguments unchanged: no default
+linker, no clang22 or `librecaulk.a` required, no `SDKROOT`, and the flag stays on the line for the
+caller's linker. A plain named linker (`-C linker=cc`) without the flag still gets Recaulk. Revisit
+when the family retires `--no-default-config` as its opt-out.
+
 ## The default linker: clang22, a runtime dependency of the native pkg
 
 On 10.9 the native pkg's `rustc` and `clippy-driver` link with clang22's `clang++` unless a linker is
