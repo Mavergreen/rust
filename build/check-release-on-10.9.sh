@@ -67,6 +67,9 @@ main_stack() {
       || { echo "a 1 MB frame on the main thread printed '$_out': 10.9 reports a 512 KB main stack, and std must not put its guard page there"; return 1; }; }
 }
 crates_io() { L "cd '$w' && cargo new -q dep && cd dep && cargo add -q itoa@1 && cargo build -q"; }
+git_https() {
+  L "cd '$w' && cargo new -q gitdep && cd gitdep && printf '%s\\n' 'itoa = { git = \"https://github.com/dtolnay/itoa\", tag = \"1.0.11\" }' >> Cargo.toml && CARGO_HOME='$w/git-home' CARGO_NET_GIT_FETCH_WITH_CLI=false cargo fetch -q"
+}
 write_ws() {
   mkdir -p "$w/ws/app/src" "$w/ws/pm/src"
   printf '[workspace]\nmembers = ["app", "pm"]\nresolver = "2"\n' > "$w/ws/Cargo.toml"
@@ -160,6 +163,7 @@ step versions versions
 step stress-program stress
 step main-thread-stack main_stack
 step crates-io crates_io
+step git-https git_https
 step clippy-proc-macro-build-rs-doctest clippy_ws
 step link-clang22 link_clang22
 step link-clang22-build-rs link_clang22_build_rs
