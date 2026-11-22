@@ -130,8 +130,52 @@ for f in rdtscp xgetbv xsetbv xsave xrstor xbegin xend xabort xtest rdfsbase wrg
 done
 case "$out" in *" t_ok uses "*) fail "SSE2 pminub, the register form of pextrw, rep, lock and tzcnt (LLVM emits it for core2: a Core 2 runs it as bsf) are all core2: $out" ;; esac
 
+cat > "$t/dic.s" <<'S'
+	.text
+	.globl _t_jt
+_t_jt:
+	retq
+	.data_region jt32
+	.byte 0xc7, 0xf8, 0xff, 0xff, 0xc6, 0xf8, 0x00, 0x00
+	.end_data_region
+	.globl _t_after
+_t_after:
+	retq
+S
+"$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -c "$t/dic.s" -o "$t/dic.o"
+prefix dic "$t/dic.o"
+out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/dic" 2>&1)" || fail "a jump table the data-in-code table marks is data, not xbegin or xabort: $out"
+mkdir -p "$t/dicx/bin"
+printf 'void t_jt(void);\nint main(void) { t_jt(); return 0; }\n' > "$t/dicm.c"
+fixture_cc -O2 "$t/dicm.c" "$t/dic.o" -o "$t/dicx/bin/tool" || fail "could not link the data-in-code executable fixture"
+out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/dicx" 2>&1)" || fail "an executable's jump table is data too: $out"
+
+cat > "$t/sec.s" <<'S'
+	.section __TEXT,__lcxx_override,regular,pure_instructions
+	.globl _t_other
+_t_other:
+	pminsd %xmm1, %xmm0
+	retq
+S
+"$CLANGDIR/bin/clang" --no-default-config --target=x86_64-apple-macos10.9 -c "$t/sec.s" -o "$t/sec.o"
+mkdir -p "$t/secx/bin"
+printf 'void t_other(void);\nint main(void) { t_other(); return 0; }\n' > "$t/secm.c"
+fixture_cc -O2 "$t/secm.c" "$t/sec.o" -o "$t/secx/bin/tool" || fail "could not link the second-code-section fixture"
+if out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/secx" 2>&1)"; then fail "code in a section other than __text is disassembled too (libc++ puts operator new in __lcxx_override): $out"; fi
+case "$out" in *" t_other uses pminsd"*) : ;; *) fail "the offender in the second code section is named: $out" ;; esac
+
+cat > "$t/xs.c" <<'C'
+#include <immintrin.h>
+__attribute__((target("xsave"))) unsigned long long xcr0(void) { return _xgetbv(0); }
+int plainx(int a) { return a + 2; }
+C
+cc1 -march=core2 -fembed-bitcode "$t/xs.c" -o "$t/xs.o"
+"$CLANGDIR/bin/llvm-objdump" -d "$t/xs.o" | grep -q xgetbv || fail "the xsave fixture must hold xgetbv, or this test proves nothing"
+prefix xs "$t/xs.o"
+out="$(CORE2_ALLOWLIST=/dev/null sh "$A" "$t/xs" 2>&1)" || fail "a function that adds xsave by its own attribute may use xgetbv: $out"
+
 mkdir -p "$t/fake"
-printf '#!/bin/sh\nfor a do f="$a"; done\nprintf "%%s:\\tfile format mach-o 64-bit x86-64\\n\\n0000000000000000 <_p>:\\n       0:      \\trex64\\tpminsd\\t%%%%xmm1, %%%%xmm0\\n       5:      \\tdata16\\tptest\\t%%%%xmm1, %%%%xmm0\\n" "$f"\n' > "$t/fake/llvm-objdump"; chmod +x "$t/fake/llvm-objdump"
+printf '#!/bin/sh\nfor a do f="$a"; done\nprintf "%%s:\\n(__TEXT,__text) section\\n_p:\\n       0:\\trex64\\tpminsd\\t%%%%xmm1, %%%%xmm0\\n       5:\\tdata16\\tptest\\t%%%%xmm1, %%%%xmm0\\n" "$f"\n' > "$t/fake/llvm-objdump"; chmod +x "$t/fake/llvm-objdump"
 prefix pfx "$t/core2.o"
 out="$(LLVM_OBJDUMP="$t/fake/llvm-objdump" CORE2_ALLOWLIST=/dev/null sh "$A" "$t/pfx" 2>&1)" || :
 case "$out" in *" p uses pminsd"*) : ;; *) fail "a prefix token (rex64, data16) on the line does not hide the instruction after it: $out" ;; esac
