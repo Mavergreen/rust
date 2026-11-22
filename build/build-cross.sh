@@ -9,6 +9,7 @@ RUST_VARIANT=cross; export RUST_VARIANT
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
 . "$HERE/lib-rust.sh"
+export_source_date_epoch
 : "${SHIPYARD_SCRIPTS:?need shipyard}"
 export COPYFILE_DISABLE=1
 JOBS="$(mavericks_build_jobs)"
