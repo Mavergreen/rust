@@ -294,6 +294,7 @@ prev=""
 linker=""
 flavor=0
 nolink=0
+optout=0
 # platform: rustc stops after printing for every --print request but link-args and native-static-libs
 printed() { case "\$1" in link-args|native-static-libs) : ;; *) nolink=1 ;; esac; }
 scan() {
@@ -305,6 +306,13 @@ scan() {
   case "\$1" in -Clinker=*) linker="\${1#-Clinker=}" ;; --codegen=linker=*) linker="\${1#--codegen=linker=}" ;; esac
   case "\$prev" in -C|--codegen) case "\$1" in linker-flavor=*) flavor=1 ;; esac ;; esac
   case "\$1" in -Clinker-flavor=*|--codegen=linker-flavor=*) flavor=1 ;; esac
+  la=""
+  case "\$prev" in -C|--codegen) case "\$1" in link-arg=*|link-args=*) la="\$1" ;; esac ;; esac
+  case "\$1" in -Clink-arg=*|-Clink-args=*) la="\${1#-C}" ;; --codegen=link-arg=*|--codegen=link-args=*) la="\${1#--codegen=}" ;; esac
+  case "\$la" in
+    link-arg=--no-default-config) optout=1 ;;
+    link-args=*) set -f; for w in \${la#link-args=}; do [ "\$w" != --no-default-config ] || optout=1; done; set +f ;;
+  esac
   prev="\$1"
 }
 # platform: cargo retries rustc with one @argfile (an argument per line) when argv exceeds ARG_MAX
@@ -317,6 +325,9 @@ done
 # spec: INGREDIENTS.md "The default linker" -- cargo runs rustc -vV (and --print probes) with no linker
 #       named, so a call that links nothing needs no clang22 and gets nothing added
 [ "\$nolink" = 0 ] || wants=0
+# spec: INGREDIENTS.md "How the back-fill reaches a 10.9 binary" -- --no-default-config on a link
+#       means the toolchain adds nothing; the caller supplies linker, SDK, minimum and back-fills
+[ "\$wants" = 1 ] && [ "\$optout" = 1 ] && exec "\$S/$_tool.bin" "\$@"
 if [ "\$wants" = 1 ] && [ ! -f "\$P" ]; then
   echo "$_tool: \$P is missing; without it a 10.9 binary would link post-10.9 symbols" >&2; exit 1
 fi

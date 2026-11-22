@@ -210,4 +210,35 @@ out="$(SDKROOT=/the/sdk "$t/cross/bin/rustc" --target aarch64-apple-darwin x.rs)
 case "$out" in *isysroot*) fail "case 36 an arm64 link keeps rustc's own SDK handling: $out" ;; esac
 out="$(SDKROOT=/the/sdk "$t/native/bin/rustc" x.rs)"
 case "$out" in *isysroot*) fail "case 36 the native wrapper is unchanged: rustc on 10.9 passes SDKROOT itself: $out" ;; esac
+NL="$t/native/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
+passes() {  # passes CASE OUT ARGS...: the wrapper ran rustc.bin with argv unchanged
+  c="$1"; o="$2"; shift 2
+  [ "$o" = "STUB $*" ] || fail "$c: --no-default-config on a link means the wrapper adds nothing: $o"
+}
+rm "$NL"; mv "$t/clang22" "$t/clang22.away"
+out="$("$t/native/bin/rustc" --target x86_64-apple-darwin -C link-arg=--no-default-config x.rs 2>&1)" || fail "case 37 the opt-out needs no clang22 and no librecaulk.a: $out"
+passes "case 37 -C link-arg=" "$out" --target x86_64-apple-darwin -C link-arg=--no-default-config x.rs
+for o in -Clink-arg=--no-default-config --codegen=link-arg=--no-default-config; do
+  out="$("$t/native/bin/rustc" "$o" x.rs 2>&1)" || fail "case 38 $o: $out"
+  passes "case 38 $o" "$out" "$o" x.rs
+done
+printf '%s\n' --target x86_64-apple-darwin -C link-arg=--no-default-config > "$t/af"
+out="$("$t/native/bin/rustc" "@$t/af" x.rs 2>&1)" || fail "case 39 the token inside an @argfile: $out"
+passes "case 39 @argfile" "$out" "@$t/af" x.rs
+out="$("$t/native/bin/rustc" -C 'link-args=-L/x* --no-default-config' x.rs 2>&1)" || fail "case 40 link-args: $out"
+passes "case 40 one word of -C link-args=" "$out" -C 'link-args=-L/x* --no-default-config' x.rs
+mv "$t/clang22.away" "$t/clang22"; : > "$NL"
+out="$("$t/native/bin/rustc" -C link-arg=--no-default-config-x x.rs)"
+case "$out" in *"-C linker=$C22 "*) : ;; *) fail "case 41 only the exact token opts out: $out" ;; esac
+out="$("$t/native/bin/rustc" --cfg 'x="--no-default-config"' x.rs)"
+case "$out" in *"-C linker=$C22 "*) : ;; *) fail "case 41 the token as a --cfg value is not a link argument: $out" ;; esac
+with="$("$t/cross/bin/rustc" --target x86_64-unknown-linux-gnu -C link-arg=--no-default-config x.rs)"
+without="$("$t/cross/bin/rustc" --target x86_64-unknown-linux-gnu x.rs)"
+[ "$with" = "STUB --target x86_64-unknown-linux-gnu -C link-arg=--no-default-config x.rs" ] && [ "$without" = "STUB --target x86_64-unknown-linux-gnu x.rs" ] \
+  || fail "case 42 a non-Apple target is treated the same with or without the token: $with / $without"
+out="$("$t/native/bin/rustc" --target x86_64-apple-darwin -C linker="$t/lk/cc-plain" x.rs)"
+case "$out" in *"-Wl,-force_load,"*"-framework -C link-arg=CoreFoundation"*) : ;; *) fail "case 43 a plain named linker still gets Recaulk; only the explicit flag opts out: $out" ;; esac
+mkdir -p "$t/g"; : > "$t/g/--no-default-config"
+out="$(cd "$t/g" && "$t/native/bin/rustc" -C 'link-args=*' x.rs)"
+case "$out" in *"-C linker=$C22 "*) : ;; *) fail "case 44 a link-args word is not a glob: a file named --no-default-config does not opt out: $out" ;; esac
 echo "OK wrapper-test"
