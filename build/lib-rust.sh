@@ -306,11 +306,13 @@ scan() {
   case "\$1" in --target="$TARGET_TRIPLE") wants=1 ;; esac
   case "\$prev" in -C|--codegen) case "\$1" in linker=*) linker="\${1#linker=}" ;; esac ;; esac
   case "\$1" in -Clinker=*) linker="\${1#-Clinker=}" ;; --codegen=linker=*) linker="\${1#--codegen=linker=}" ;; esac
-  case "\$prev" in -C|--codegen) case "\$1" in linker-flavor=*) flavor=1 ;; esac ;; esac
-  case "\$1" in -Clinker-flavor=*|--codegen=linker-flavor=*) flavor=1 ;; esac
+  # platform: rustc reads _ and - alike in a -C option's name
+  case "\$prev" in -C|--codegen) case "\$1" in linker[-_]flavor=*) flavor=1 ;; esac ;; esac
+  case "\$1" in -Clinker[-_]flavor=*|--codegen=linker[-_]flavor=*) flavor=1 ;; esac
   la=""
-  case "\$prev" in -C|--codegen) case "\$1" in link-arg=*|link-args=*) la="\$1" ;; esac ;; esac
-  case "\$1" in -Clink-arg=*|-Clink-args=*) la="\${1#-C}" ;; --codegen=link-arg=*|--codegen=link-args=*) la="\${1#--codegen=}" ;; esac
+  case "\$prev" in -C|--codegen) case "\$1" in link[-_]arg=*|link[-_]args=*) la="\$1" ;; esac ;; esac
+  case "\$1" in -Clink[-_]arg=*|-Clink[-_]args=*) la="\${1#-C}" ;; --codegen=link[-_]arg=*|--codegen=link[-_]args=*) la="\${1#--codegen=}" ;; esac
+  case "\$la" in link_arg=*) la="link-arg=\${la#link_arg=}" ;; link_args=*) la="link-args=\${la#link_args=}" ;; esac
   case "\$la" in
     link-arg=--no-default-config) optout=1 ;;
     link-args=*) set -f; for w in \${la#link-args=}; do [ "\$w" != --no-default-config ] || optout=1; done; set +f ;;
