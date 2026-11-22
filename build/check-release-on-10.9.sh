@@ -48,6 +48,10 @@ install_pkg() { sudo installer -pkg "$w/rust-$V.pkg" -target / && /usr/local/bin
 # platform: /usr/local/mavergreen/bin reaches PATH only through a login shell's paths.d
 L() { /bin/zsh -lc "$1"; }
 versions() { L 'rustc --version && cargo --version && cargo clippy --version && cargo fmt --version'; }
+target_defaults() {
+  d="$(L 'unset MACOSX_DEPLOYMENT_TARGET; rustc --print deployment-target --target x86_64-apple-darwin')" || return 1
+  [ "$d" = "MACOSX_DEPLOYMENT_TARGET=10.9" ] || { echo "rustc's default deployment target is '$d', not 10.9"; return 1; }
+}
 write_smoke() {
   printf '%s\n' 'use std::collections::HashMap; use std::time::SystemTime;' \
     'fn main() { let mut m = HashMap::new(); m.insert("mavericks", 109); let _ = SystemTime::now();' \
@@ -160,6 +164,7 @@ step fetch-and-verify fetch
 step clang22 clang22
 step install install_pkg
 step versions versions
+step target-defaults target_defaults
 step stress-program stress
 step main-thread-stack main_stack
 step crates-io crates_io

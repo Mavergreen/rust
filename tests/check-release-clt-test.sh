@@ -63,9 +63,11 @@ out="$(run "$t/clt" "$MK; : > \"\$w/smoke-cc\"; minos_sdk && echo ok")"
 set +e; out="$(run "$t/noclt" 'minos_sdk')"; rc=$?; set -e
 [ "$rc" != 0 ] || fail "minos-sdk never passes with no binaries at all"
 
-for st in stress-program crates-io git-https clippy-proc-macro-build-rs-doctest clang22 link-clang22 link-clang22-build-rs minos-sdk; do
+for st in target-defaults stress-program crates-io git-https clippy-proc-macro-build-rs-doctest clang22 link-clang22 link-clang22-build-rs minos-sdk; do
   grep -q "^step $st " "$S" || fail "$st needs no Command Line Tools (rust links with clang22 by default), so it always runs as a step"
 done
+grep -q 'rustc --print deployment-target --target x86_64-apple-darwin' "$S" && grep -q '= "MACOSX_DEPLOYMENT_TARGET=10.9"' "$S" \
+  || fail "target-defaults asks the installed rustc its default deployment target and wants 10.9 (patch 0003)"
 [ "$(grep -c '^cstep ' "$S")" = 1 ] && grep -q '^cstep explicit-cc explicit_cc$' "$S" \
   || fail "explicit-cc, area 18 D's honoured CLT path, is the one cstep"
 grep -q 'rustc -C linker=cc ' "$S" || fail "explicit-cc names cc as the linker"
