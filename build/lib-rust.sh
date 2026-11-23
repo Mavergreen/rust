@@ -439,11 +439,15 @@ relocate_prefix() {
 }
 
 # platform: rust-installer writes each manifest-* with DESTDIR's absolute paths and logs its own
-#           commands to install.log; uninstall.sh reads the manifests at the installed prefix
+#           commands to install.log; uninstall.sh reads the manifests at the installed prefix, and a
+#           file the stage has since dropped (a pruned proc-macro dylib) is not installed
 rewrite_install_records() {
   for _m in "$2"/lib/rustlib/manifest-*; do
     [ -f "$_m" ] || continue
-    sed "s|^\([a-z]*:\)$1/|\1/|" "$_m" > "$_m.new" && mv "$_m.new" "$_m"
+    sed "s|^\([a-z]*:\)$1/|\1/|" "$_m" | while IFS= read -r _l; do
+      case "$_l" in file:*) [ -e "$1${_l#file:}" ] || [ -L "$1${_l#file:}" ] || continue ;; esac
+      printf '%s\n' "$_l"
+    done > "$_m.new" && mv "$_m.new" "$_m"
   done
   rm -f "$2/lib/rustlib/install.log"
 }
