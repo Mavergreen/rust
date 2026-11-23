@@ -139,7 +139,10 @@ dylibs it links, its minos or its SDK. The differences that remain have two caus
   `rustc -vV`'s `host:` line (cargo leaves it out for target crates). The ID reaches every rlib and
   rmeta, `libstd`, the binaries built against it, the order in which `librustc_driver` mangles
   `dyn … + DynSend + DynSync` and where generics such as `thin_vec::drop_non_singleton` are
-  instantiated, so `rustdoc` and `clippy-driver` import different symbols from it.
+  instantiated, so `rustdoc` and `clippy-driver` import different symbols from it (rustc orders both
+  by DefPathHash, which derives from the StableCrateId). Once the IDs match, all thirteen of its entries
+  are expected to go, the three interface entries included; the checker fails on any that no longer
+  excuse anything.
 - Function order in LLVM's tools. Same flags, same clang22 configuration, the same `libc++.a` and
   the same CMake check results, yet clang22 hosted on Linux and clang22 hosted on 10.9 emit a
   translation unit's inline functions in a different order, so `__text`, `__cstring` and
