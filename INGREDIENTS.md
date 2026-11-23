@@ -127,22 +127,27 @@ build copies over clang-22's own, so `recaulk=` in `build-info-*.txt` is true of
 
 ## Build equivalence (native, cross-hosted vs on 10.9)
 
-Measured once (2026-11-21) between CI's Linux-hosted `build-native` at ca55507 and `build-native.sh`
-run natively on 10.9.5 at the same pins, under a work root of the same length:
+Measured with shipyard's `build-equivalence.sh` (v1.0.812, 2026-11-22) between CI's Linux-hosted
+`build-native` at 54e9cf1 (run 45076950970) and `build-native.sh` run natively on 10.9.5 at the same
+commit, built with the same shipyard. The two payloads hold the same paths, and no Mach-O differs in the
+dylibs it links, its minos or its SDK. The differences that remain have two causes, both declared under
+"Conformance deviations":
 
-- `build-info-native.txt` is identical apart from the `build-host*` keys.
-- The payloads hold the same 375 paths once crate-hash suffixes are normalized; 284 files are
-  byte-identical, the updater executable among them.
-- Every Mach-O links the same dylibs with the same minos and SDK. `rustc.bin`'s exports, imports and
-  section sizes are identical.
-- The rest differ in bytes, for two reasons, neither keyed on anything this repo sets:
-  - Crate hashes. cargo hashes `rustc -vV` of the compiler that builds std, and its `host:` line is
-    the build triple. The hashes reach every symbol name, so most `.rlib` members, `cargo`,
-    `rustdoc`, `clippy-driver` and `rustfmt` differ, and generics instantiate in other crates.
-  - Function order in LLVM's tools. Same flags, same clang22 configuration, the same `libc++.a` and
-    the same CMake check results, yet clang22 hosted on Linux and clang22 hosted on 10.9 emit a
-    translation unit's inline functions in a different order, so `__text`, `__cstring` and
-    `__unwind_info` are permuted at equal sizes.
+- std's crate ID. A Linux-built std's StableCrateId differs from a 10.9-built one, deterministically
+  (`fda44cb9000b3d7` against `77dcaaddc7994ba9` in two pairs of builds). Target rustflags are not the
+  cause (cargo hashes them only into file names, which the checker normalizes), and neither is
+  `rustc -vV`'s `host:` line (cargo leaves it out for target crates). The ID reaches every rlib and
+  rmeta, `libstd`, the binaries built against it, the order in which `librustc_driver` mangles
+  `dyn … + DynSend + DynSync` and where generics such as `thin_vec::drop_non_singleton` are
+  instantiated, so `rustdoc` and `clippy-driver` import different symbols from it.
+- Function order in LLVM's tools. Same flags, same clang22 configuration, the same `libc++.a` and
+  the same CMake check results, yet clang22 hosted on Linux and clang22 hosted on 10.9 emit a
+  translation unit's inline functions in a different order, so `__text`, `__cstring` and
+  `__unwind_info` are permuted at equal sizes and with identical symbol sets.
+
+Measuring also found three things this repo set, now fixed: OpenSSL's "built on" date (the builds
+export SOURCE_DATE_EPOCH), the SDK path in target rustflags (rustc hands the linker SDKROOT), and
+manifests naming the staging root and pruned dylibs.
 
 On 10.9, x.py's own `bootstrap` driver is compiled by stage0, whose std is upstream's and takes
 libSystem's 512 KiB main-thread stack, so it overflows before the build starts. `build-native.sh`
@@ -175,6 +180,20 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 ## Conformance deviations
 
 - python3: x.py, Rust's own build driver, is Python; a native 10.9 build takes python3 from pkgsrc. No alternative exists upstream.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/x86_64-apple-darwin/lib/*-H.rlib: std's crate ID differs between a Linux-built and a 10.9-built std ("Build equivalence" above) and reaches every member. Exit: std's StableCrateId matching across build hosts.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/x86_64-apple-darwin/lib/*-H.rmeta: the same crate ID, in each crate's metadata. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/x86_64-apple-darwin/lib/libstd-H.dylib: the same crate ID, in its symbols and metadata. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/manifest-rust-std-x86_64-apple-darwin: it lists std's files, whose names carry the crate hashes. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/manifest-rustc: it lists librustc_driver, whose name carries its crate hash. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/bin/rustc.bin: built against std, so the crate ID reaches its symbol hashes. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/bin/rustfmt: as rustc.bin. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/bin/cargo-fmt: as rustc.bin. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/bin/cargo-clippy: as rustc.bin. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/bin/cargo: as rustc.bin, and its vendored OpenSSL records its compiler command line ("compiler: ccache … -isysroot <SDK path>"), which names the build host's paths. Exit: as above, and openssl-src recording no build paths.
+- build-equivalence-interface:usr/local/mavergreen/rust/lib/librustc_driver-H.dylib: the crate ID orders the auto traits in the v0 mangling of `dyn … + DynSend + DynSync`, so some exported names differ. Exit: as above.
+- build-equivalence-interface:usr/local/mavergreen/rust/bin/rustdoc: generics such as `thin_vec::drop_non_singleton` are shared from different crates, so it imports different symbols from librustc_driver. Exit: as above.
+- build-equivalence-interface:usr/local/mavergreen/rust/bin/clippy-driver.bin: as rustdoc. Exit: as above.
+- build-equivalence:usr/local/mavergreen/rust/lib/rustlib/x86_64-apple-darwin/bin/*: LLVM's tools, which clang22 hosted on Linux and on 10.9 emit with a translation unit's inline functions in a different order. Exit: clang-22 emitting host-independently.
 - sdk-pin:usr/local/mavergreen/*/lib/rustlib/*/lib/*.rlib: rustc-emitted objects record no SDK (LC_VERSION_MIN_MACOSX "sdk n/a"); their minimum is 10.9 since patch 0003. These rlibs are link inputs, not installed executables: the linked output records the 10.9 SDK, and the compat guard plus the real-10.9 runs check it. Exit: rustc writing an SDK version into the objects it emits.
 - sdk-pin:opt/mavergreen/rust/lib/rustlib/*/lib/*.rlib: the Linux tarball's rlibs, for the same reason: rustc records no SDK in the objects it emits, whose minimum is 10.9 since patch 0003. Exit: as above.
 - linux:opt/mavergreen/rust/*: rustc and cargo hosted on x86_64 Linux, targeting Mac OS X 10.9, for builds of 10.9 products on Linux (codex-cli, and the pinned toolchain set Aqua WebKit's Linux build fetches)
