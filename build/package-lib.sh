@@ -4,6 +4,19 @@
 # spec: INGREDIENTS.md "The default linker" -- the native pkg's rustc links with clang22 by
 #       default, so its preinstall refuses a box without clang22 (shipyard vision area 7's tool kind)
 variant_requires() { case "$1" in native) echo clang22 ;; esac; }
+RUST_MANIFEST_EXCLUDES="bin/rustc.bin bin/clippy-driver.bin"
+# spec: .superpowers/QUEUE.md 6 -- install-products.sh reads opt/mavergreen/rust/mavergreen.plist from the
+#       Linux tarball instead of fetching the macOS pkg; the tarball installs no updater, so no appcast
+write_linux_manifest() {
+  _lm="$(mktemp -d "${TMPDIR:-/tmp}/linux-manifest.XXXXXX")"
+  set -- "$1" --stage "$_lm" --product rust --name "Rust for Mavericks" --group rust --version "$2"
+  for _e in $RUST_MANIFEST_EXCLUDES; do set -- "$@" --exclude "$_e"; done
+  for _r in $(variant_requires native); do set -- "$@" --requires "$_r"; done
+  _ld="$1"; shift
+  sh "$SHIPYARD_SCRIPTS/render-manifest.sh" "$@" >&2 \
+    && cp "$_lm/usr/local/mavergreen/rust/mavergreen.plist" "$_ld/mavergreen.plist"
+  _rc=$?; rm -rf "$_lm"; return "$_rc"
+}
 package_variant() {
   v="$1"
   RUST_VARIANT="$v"; export RUST_VARIANT
@@ -30,7 +43,8 @@ package_variant() {
   find "$pr" -name '._*' -delete
   app="$(sh "$REPO_ROOT/build/build-updater.sh" "$v")"
   set -- --stage "$pr" --product "$short" --name "Rust for Mavericks" --group rust \
-    --version "$VER" --exclude bin/rustc.bin --exclude bin/clippy-driver.bin --scripts-out "$scr" --updater-app "$app"
+    --version "$VER" --scripts-out "$scr" --updater-app "$app"
+  for _e in $RUST_MANIFEST_EXCLUDES; do set -- "$@" --exclude "$_e"; done
   if [ -n "$line" ]; then set -- "$@" --line "$line"; fi
   for _r in $(variant_requires "$v"); do set -- "$@" --requires "$_r"; done
   sh "$SHIPYARD_SCRIPTS/stage_product.sh" "$@"

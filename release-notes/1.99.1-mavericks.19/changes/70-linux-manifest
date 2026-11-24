@@ -1,0 +1,1 @@
+The linux-x86_64 tarball now says which release it is and that it needs clang22, so installing it on Linux no longer downloads the macOS package as well.

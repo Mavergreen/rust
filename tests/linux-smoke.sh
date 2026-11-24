@@ -7,6 +7,7 @@
 #          TARBALL as shipyard's fetch_product_tar.sh does, then checks the three things below.
 #            - The shipped ELF loads only glibc, libgcc_s and its own libraries.
 #            - rustc -vV names the Linux host and the pinned release.
+#            - mavergreen.plist is rust's, at the tarball's version.
 #            - target/target-core2.sh passes with its rustc: 10.9 and core2 by default.
 #            - cargo builds a HashMap+Instant program for x86_64-apple-darwin, linked by clang22's
 #              clang++ against the pinned 10.9 SDK, and the output is thin x86_64 with minos 10.9,
@@ -96,6 +97,10 @@ done
 vv="$("$P/bin/rustc" -vV)"
 printf '%s\n' "$vv" | grep -qx 'host: x86_64-unknown-linux-gnu' || fail "rustc -vV names no Linux host: $vv"
 printf '%s\n' "$vv" | grep -qx "release: $RUST_VERSION" || fail "rustc -vV names no release $RUST_VERSION: $vv"
+_mv="$(awk '/<key>version<\/key>/ { getline; sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit }' "$P/mavergreen.plist" 2>/dev/null || :)"
+case "$(basename "$TB")" in "$NATIVE_SHORT-$_mv-linux-x86_64.tar.gz") : ;;
+  *) fail "the tarball's mavergreen.plist names version '$_mv', not $(basename "$TB")'s (install-products.sh reads it instead of the pkg's)" ;; esac
+grep -q '<string>dev.mavergreen.rust.rust</string>' "$P/mavergreen.plist" || fail "the tarball's mavergreen.plist is not rust's"
 [ -f "$P/lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a" ] || fail "the tarball lacks lib/rustlib/$TARGET_TRIPLE/lib/librecaulk.a"
 sh "$HERE/target/target-core2.sh" "$P/bin/rustc" > "$t/out" 2>&1 || { cat "$t/out"; fail "the tarball's rustc targets 10.9 and core2 by default (patch 0003)"; }
 grep '^PASS' "$t/out"

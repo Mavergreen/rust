@@ -2,14 +2,15 @@
 # platform: host-agnostic
 #   usage: package-linux.sh
 #          Writes the Linux stage as dist/rust-$VER-linux-x86_64.tar.gz, laid out under
-#          opt/mavergreen/rust/ for shipyard's fetch_product_tar.sh, and dist/build-info-linux.txt.
+#          opt/mavergreen/rust/ for shipyard's fetch_product_tar.sh, with the pkg's mavergreen.plist
+#          (write_linux_manifest), and dist/build-info-linux.txt.
 #          The archive is reproducible: GNU tar with sorted names, owner 0 and every mtime set to
 #          SOURCE_DATE_EPOCH (default: HEAD's commit time), then gzip -n. PKG_DIR replaces dist/.
 # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D7 (shipyard)
 set -eu
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"; export REPO_ROOT
 RUST_VARIANT=linux; export RUST_VARIANT
-. "$REPO_ROOT/build/versions.sh"; . "$REPO_ROOT/build/lib-rust.sh"
+. "$REPO_ROOT/build/versions.sh"; . "$REPO_ROOT/build/lib-rust.sh"; . "$REPO_ROOT/build/package-lib.sh"
 P="$LINUX_STAGE_ROOT$LINUX_PREFIX"
 [ -x "$P/bin/rustc.bin" ] || { echo "FATAL: the Linux toolchain is not staged at $P" >&2; exit 1; }
 stage_is_current "$WORK/staged.stamp" linux \
@@ -21,6 +22,7 @@ VER="$(sh "$SHIPYARD_SCRIPTS/resolve-version.sh" "$(sh "$SHIPYARD_SCRIPTS/releas
 : "${SOURCE_DATE_EPOCH:=$(git -C "$REPO_ROOT" log -1 --format=%ct)}"
 dist="${PKG_DIR:-$REPO_ROOT/dist}"; mkdir -p "$dist"
 name="$NATIVE_SHORT-$VER-linux-x86_64.tar.gz"; out="$dist/$name"
+write_linux_manifest "$P" "$VER"
 # platform: fetch_product_tar.sh takes regular files, directories and relative symlinks only, so a hard
 #           link is archived as the file it names
 ( cd "$LINUX_STAGE_ROOT" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
