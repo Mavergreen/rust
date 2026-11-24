@@ -324,6 +324,7 @@ jobs:
   #       rust-cross pkg's arm64 rustc and cargo run on Apple Silicon, holding no key
   modern-smoke:
     needs: [ver, build-cross]
+    if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 60
     steps:
