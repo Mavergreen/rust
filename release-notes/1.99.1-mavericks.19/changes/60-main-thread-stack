@@ -1,0 +1,1 @@
+Programs on Mac OS X 10.9 no longer abort with a false stack overflow report when their main thread uses a deep stack.

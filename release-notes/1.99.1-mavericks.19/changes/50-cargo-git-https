@@ -1,0 +1,1 @@
+cargo on Mac OS X 10.9 can fetch git dependencies over HTTPS again, without CARGO_NET_GIT_FETCH_WITH_CLI.

@@ -1,0 +1,1 @@
+Programs that rustc builds for x86_64-apple-darwin now target Mac OS X 10.9 and the Core 2 CPU by default, without MACOSX_DEPLOYMENT_TARGET or -C target-cpu.

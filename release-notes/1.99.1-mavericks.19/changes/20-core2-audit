@@ -1,0 +1,1 @@
+Every release now checks each function of the toolchain for instructions a Core 2 lacks, and allows them only in code that checks the CPU first.
