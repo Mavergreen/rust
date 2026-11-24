@@ -1,0 +1,1 @@
+The linux-x86_64 tarball's rustc and cargo now also build programs for Apple Silicon Macs running macOS 11 or later, linked by clang22 against the macOS 11.3 SDK.

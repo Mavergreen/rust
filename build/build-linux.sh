@@ -2,7 +2,8 @@
 # platform: host-agnostic
 #   usage: build-linux.sh
 #          Stages the Linux-hosted toolchain at $LINUX_STAGE_ROOT$LINUX_PREFIX: rustc and cargo that run
-#          on x86_64 Linux and target x86_64-unknown-linux-gnu and x86_64-apple-darwin (10.9). It runs on
+#          on x86_64 Linux and target x86_64-unknown-linux-gnu, x86_64-apple-darwin (10.9) and
+#          aarch64-apple-darwin (11.0, the pinned 11.3 SDK, no Recaulk). It runs on
 #          x86_64 Linux, inside clang-22's pinned base image (build/linux/Dockerfile adds the build's
 #          own tools), so what it ships runs on the family's glibc floor.
 # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D1, D2, D3 and D7 (shipyard)
@@ -31,17 +32,26 @@ SRC="$(sh "$HERE/fetch-rust-src.sh")"
 install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 STAGE0="$(sh "$HERE/fetch-stage0.sh" "$CLANGDIR" "$RECAULK_A")"
 linux_host_compilers "$CLANGDIR"
+# spec: .superpowers/QUEUE.md 7 -- aarch64-apple-darwin's std compiles and links with clang22 and no cfg,
+#       against the pinned 11.3 SDK at minos 11.0, as rust-cross's arm64 half does
+ARM_SDK="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch arm64)"
+mkdir -p "$WORK/bin"
+write_pinned_cc "$WORK/bin/cc-arm64-pinned" "$ARM_SDK" "$CLANGDIR"
+write_pinned_cc "$WORK/bin/c++-arm64-pinned" "$ARM_SDK" "$CLANGDIR" clang++
 
-echo "== configure bootstrap.toml (host $BUILD_TRIPLE, targets $BUILD_TRIPLE and $TARGET_TRIPLE) =="
-write_bootstrap_toml "$SRC" "$LINUX_PREFIX" "$BUILD_TRIPLE" "$BUILD_TRIPLE" "$CLANGDIR" "$STAGE0"
+echo "== configure bootstrap.toml (host $BUILD_TRIPLE, targets $BUILD_TRIPLE, $TARGET_TRIPLE and aarch64-apple-darwin) =="
+ARM64_CC="$WORK/bin/cc-arm64-pinned" ARM64_CXX="$WORK/bin/c++-arm64-pinned" ARM64_LINKER="$WORK/bin/cc-arm64-pinned" \
+  write_bootstrap_toml "$SRC" "$LINUX_PREFIX" "$BUILD_TRIPLE" "$BUILD_TRIPLE" "$CLANGDIR" "$STAGE0"
 pin_linux_build_sdk "$BUILD_TRIPLE" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
-echo "== x.py install (LLVM from source, X86 only) =="
+echo "== x.py install (LLVM from source, AArch64 and X86) =="
 ( cd "$SRC" && PATH="$MAKE_BIN:$CMAKE_BIN:$PATH" CMAKE="$CMAKE_BIN/cmake" \
     DESTDIR="$STAGE_ROOT" \
     PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig PKG_CONFIG_PATH= \
     CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$CLANGDIR/bin/clang++" \
+    CFLAGS_aarch64_apple_darwin="--target=arm64-apple-macos11.0 -isysroot $ARM_SDK -mmacosx-version-min=11.0" \
+    CXXFLAGS_aarch64_apple_darwin="--target=arm64-apple-macos11.0 -isysroot $ARM_SDK -mmacosx-version-min=11.0" \
     python3 x.py install -j "$JOBS" )
 
 staged_complete "$STAGE" || { echo "FATAL: x.py install did not stage every tool under $STAGE" >&2; exit 1; }

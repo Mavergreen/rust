@@ -68,8 +68,8 @@ d="$(PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/fake-shipyard-cmake" cmake_shim_di
   || fail "cmake_shim_dir: bootstrap 1.95 has no [build] cmake key and runs 'cmake' from PATH, so the dir must hold cmake -> shipyard-cmake"
 ! ( PATH="$t/dbin:$PATH"; SHIPYARD_CMAKE="$t/absent" cmake_shim_dir "$t/cmbin2" ) 2>/dev/null || fail "cmake_shim_dir must refuse a missing shipyard-cmake"
 mkdir -p "$t/pinned"
-ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
-  write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c
+( ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
+  write_bootstrap_toml "$t/pinned" /usr/local/mavergreen/rust-cross aarch64-apple-darwin aarch64-apple-darwin /c ) || exit 1
 arm64_section='cc = "/w/cc-arm64-pinned"
 cxx = "/w/c++-arm64-pinned"
 ar = "/c/bin/llvm-ar"
@@ -129,9 +129,9 @@ section() { sed -n "/^\\[target\\.$2\\]\$/,/^\\[/p" "$t/$1/bootstrap.toml" | sed
 mkdir -p "$t/lnative" "$t/lcross" "$t/ltar" "$t/lnocc"
 LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
   write_bootstrap_toml "$t/lnative" /usr/local/mavergreen/rust $L x86_64-apple-darwin /c /s0
-LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
+( LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
   ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
-  write_bootstrap_toml "$t/lcross" /usr/local/mavergreen/rust-cross $L aarch64-apple-darwin /c /s0
+  write_bootstrap_toml "$t/lcross" /usr/local/mavergreen/rust-cross $L aarch64-apple-darwin /c /s0 ) || exit 1
 LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
   write_bootstrap_toml "$t/ltar" /opt/mavergreen/rust $L $L /c /s0
 has lnative 'build = "x86_64-unknown-linux-gnu"'
@@ -148,6 +148,15 @@ has lcross 'targets = "AArch64;X86"'
 has ltar 'host = ["x86_64-unknown-linux-gnu"]'
 has ltar 'target = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin"]'
 has ltar 'targets = "X86"'
+mkdir -p "$t/ltar64"
+( LINUX_HOST_CC=/w/linux-host/cc LINUX_HOST_CXX=/w/linux-host/c++ \
+  ARM64_CC=/w/cc-arm64-pinned ARM64_CXX=/w/c++-arm64-pinned ARM64_LINKER=/w/cc-arm64-pinned \
+  write_bootstrap_toml "$t/ltar64" /opt/mavergreen/rust $L $L /c /s0 ) || exit 1
+has ltar64 'host = ["x86_64-unknown-linux-gnu"]'
+has ltar64 'target = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin", "aarch64-apple-darwin"]'
+has ltar64 'targets = "AArch64;X86"'
+[ "$(section ltar64 aarch64-apple-darwin)" = "$arm64_section" ] \
+  || fail "ltar64: the Linux tarball's [target.aarch64-apple-darwin] compiles and links with \$ARM64_CC, \$ARM64_CXX and \$ARM64_LINKER (got '$(section ltar64 aarch64-apple-darwin)')"
 want='cc = "/w/linux-host/cc"
 cxx = "/w/linux-host/c++"
 ar = "/c/bin/llvm-ar"

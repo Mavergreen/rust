@@ -12,6 +12,8 @@
 #            - cargo builds a HashMap+Instant program for x86_64-apple-darwin, linked by clang22's
 #              clang++ against the pinned 10.9 SDK, and the output is thin x86_64 with minos 10.9,
 #              sdk 10.9, Recaulk's _clock_gettime, and no /opt/ load path.
+#            - the arm64 std is thin arm64 at minos 11.0 and sdk 11.3, with no librecaulk.a, and cargo
+#              builds the same program for aarch64-apple-darwin with clang22 (no cfg) and the 11.3 SDK.
 #            - a host-target hello builds and runs.
 #          TARBALL defaults to the one dist/ holds. Naming one makes its absence a failure. Without
 #          one, and with none in dist/, it ends after the static half; off Linux it ends there too.
@@ -38,6 +40,15 @@ audit_macho() {
   [ -z "$_p" ] || { echo "$2 loads $_p"; return 1; }
 }
 
+audit_arm64() {
+  "$LIPO" -info "$1" | grep -Eq 'architecture: arm64 *$' || { echo "$2 is not thin arm64"; return 1; }
+  _v="$(minos_sdk "$1")"
+  [ "$_v" = "11.0 11.3" ] || { echo "$2 records minos and sdk '$_v', not '11.0 11.3'"; return 1; }
+  _p="$( { "$OTOOL" -L "$1" | tail -n +2 | awk '{ print $1 }'
+           "$OTOOL" -l "$1" | awk '/LC_RPATH/ { r = 1 } r && / path / { print $2; r = 0 }'; } | grep '^/opt/' | sed -n 1p)" || _p=""
+  [ -z "$_p" ] || { echo "$2 loads $_p"; return 1; }
+}
+
 printf 'int clock_gettime(int c, void *s) { (void)c; (void)s; return 0; }\nint main(void) { return 0; }\n' > "$t/cg.c"
 printf 'int main(void) { return 0; }\n' > "$t/main.c"
 fixture_cc -o "$t/good" "$t/cg.c"
@@ -51,6 +62,24 @@ bad_macho() {
 bad_macho "minos 10.12" "records minos and sdk '10.12"
 fixture_cc -o "$t/bad" "$t/main.c"; bad_macho "no Recaulk" "_clock_gettime"
 fixture_cc -Wl,-rpath,/opt/pkg/lib -o "$t/bad" "$t/cg.c"; bad_macho "an rpath into /opt/pkg" "loads /opt/pkg/lib"
+
+S11="$(sh "$SHIPYARD_SCRIPTS/fetch_sdk.sh" --arch arm64)" || { echo "no 11.3 SDK could be fetched -- skipping"; exit 77; }
+arm_cc() { "$CLANGDIR/bin/clang" --no-default-config -fuse-ld=lld --ld-path="$CLANGDIR/bin/ld64.lld" -isysroot "$S11" "$@"; }
+# platform: the native clang22 on 10.9 and a modern Mac has no AArch64 backend; its Linux archive has
+arm64_fixtures=1
+"$CLANGDIR/bin/clang" -print-targets 2>/dev/null | grep -qw aarch64 || arm64_fixtures=0
+[ "$arm64_fixtures" = 1 ] || [ "$(uname -s)" != Linux ] || fail "clang22's Linux archive has no AArch64 backend, and the tarball's arm64 std links with it"
+if [ "$arm64_fixtures" = 1 ]; then
+arm_cc --target=arm64-apple-macos11.0 -o "$t/arm" "$t/main.c"
+audit_arm64 "$t/arm" arm > "$t/out" || { cat "$t/out"; fail "an arm64 fixture at minos 11.0 with the 11.3 SDK must pass the arm64 audit"; }
+bad_arm() {
+  if audit_arm64 "$t/bad" bad > "$t/out"; then fail "the arm64 audit passed a fixture it must refuse: $1"; fi
+  grep -q "$2" "$t/out" || { cat "$t/out"; fail "the refusal must say $2 ($1)"; }
+}
+arm_cc --target=x86_64-apple-macos11.0 -o "$t/bad" "$t/main.c"; bad_arm "x86_64" "not thin arm64"
+arm_cc --target=arm64-apple-macos12.0 -o "$t/bad" "$t/main.c"; bad_arm "minos 12.0" "records minos and sdk '12.0"
+arm_cc --target=arm64-apple-macos11.0 -Wl,-rpath,/opt/homebrew/lib -o "$t/bad" "$t/main.c"; bad_arm "an rpath into /opt/homebrew" "loads /opt/homebrew/lib"
+fi
 
 elf() { "$CLANGDIR/bin/clang" --no-default-config --target=x86_64-unknown-linux-gnu -fuse-ld=lld -nostdlib -fPIC "$@"; }
 printf 'int f(void) { return 1; }\n' > "$t/f.c"
@@ -123,6 +152,21 @@ CARGO_HOME="$t/cargo-home" CARGO_TARGET_DIR="$t/target" RUSTC="$P/bin/rustc" RUS
   || { cat "$t/out"; fail "cargo build --target $TARGET_TRIPLE with clang22's clang++ and the 10.9 SDK"; }
 audit_macho "$t/target/$TARGET_TRIPLE/debug/smoke" "the $TARGET_TRIPLE smoke" > "$t/out" || { cat "$t/out"; fail "the 10.9 program cargo built"; }
 [ -z "$PROBE" ] || cp "$t/target/$TARGET_TRIPLE/debug/smoke" "$PROBE" || fail "could not copy the 10.9 program to $PROBE"
+
+A64=aarch64-apple-darwin
+[ -d "$P/lib/rustlib/$A64/lib" ] || fail "the tarball lacks lib/rustlib/$A64, the arm64 std"
+[ ! -e "$P/lib/rustlib/$A64/lib/librecaulk.a" ] || fail "the tarball's arm64 std carries librecaulk.a, which is x86_64 for 10.9"
+find "$P/lib/rustlib/$A64/lib" -type f -name '*.dylib' > "$t/arm-dylibs"
+[ -s "$t/arm-dylibs" ] || fail "no $A64 dylib under the tarball's lib/rustlib -- nothing audited"
+while IFS= read -r _d; do
+  audit_arm64 "$_d" "${_d#"$P"/}" > "$t/out" || { cat "$t/out"; fail "the tarball's arm64 std"; }
+done < "$t/arm-dylibs"
+write_pinned_cc "$t/cc-arm64" "$S11" "$CLANGDIR"
+CARGO_HOME="$t/cargo-home" CARGO_TARGET_DIR="$t/target" RUSTC="$P/bin/rustc" RUSTDOC="$P/bin/rustdoc" \
+  CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$t/cc-arm64" SDKROOT="$S11" \
+  "$P/bin/cargo" build --offline --manifest-path "$A/Cargo.toml" --target "$A64" > "$t/out" 2>&1 \
+  || { cat "$t/out"; fail "cargo build --target $A64 with clang22 (no cfg) and the 11.3 SDK"; }
+audit_arm64 "$t/target/$A64/debug/smoke" "the $A64 smoke" > "$t/out" || { cat "$t/out"; fail "the arm64 program cargo built"; }
 
 hostcc="$(command -v cc || command -v gcc || command -v gcc-12)" || fail "no C compiler driver on PATH links the host-target hello"
 printf 'fn main() { println!("hello from {}", std::env::consts::OS); }\n' > "$t/hello.rs"

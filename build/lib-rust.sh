@@ -7,6 +7,11 @@ write_bootstrap_toml() {
   _py="$(command -v python3 || echo /opt/pkg/bin/python3)"
   if [ "$_host" = "$TARGET_TRIPLE" ]; then _targets="\"$TARGET_TRIPLE\""; else _targets="\"$_host\", \"$TARGET_TRIPLE\""; fi
   case "$_build$_host" in *aarch64*) _llvm_targets="AArch64;X86" ;; *) _llvm_targets="X86" ;; esac
+  # spec: .superpowers/QUEUE.md 7 -- the Linux tarball also targets aarch64-apple-darwin (11.0) when it
+  #       is given an arm64 linker
+  if [ -n "${ARM64_LINKER:-}" ] && [ "$_host" != aarch64-apple-darwin ]; then
+    _targets="$_targets, \"aarch64-apple-darwin\""; _llvm_targets="AArch64;X86"
+  fi
   # platform: bootstrap runs ccache as CMake's compiler launcher, and ccache cannot use LLVM 22's
   #           precompiled headers (built without -fno-pch-timestamp), so on Linux CI nothing caches
   _bcx=""; [ "$_build" != x86_64-unknown-linux-gnu ] || _bcx=', CMAKE_DISABLE_PRECOMPILE_HEADERS = "ON"'
