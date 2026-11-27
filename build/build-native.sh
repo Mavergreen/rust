@@ -18,13 +18,13 @@ if staged_complete "$STAGE" && stage_is_current "$WORK/staged.stamp" native; the
 rm -f "$WORK/staged.stamp"; rm -rf "$NATIVE_STAGE_ROOT"
 
 case "$MODE" in
-  cross)  if [ "$(uname -s)" = Linux ]; then
+  modern) if [ "$(uname -s)" = Linux ]; then
             BUILD_TRIPLE=x86_64-unknown-linux-gnu
           else
             [ "$(uname -m)" = arm64 ] || { echo "FATAL: cross-hosting from a Mac needs an arm64 build machine (got $(uname -m))" >&2; exit 1; }
             BUILD_TRIPLE=aarch64-apple-darwin
           fi ;;
-  native) BUILD_TRIPLE=x86_64-apple-darwin ;;
+  mavericks) BUILD_TRIPLE=x86_64-apple-darwin ;;
   *) echo "FATAL: mavericks_mode.sh said '$MODE'" >&2; exit 1 ;;
 esac
 mkdir -p "$WORK"
@@ -37,7 +37,7 @@ SRC="$(sh "$HERE/fetch-rust-src.sh")"
 install_recaulk_into_clang "$RECAULK_A" "$CLANGDIR"
 
 STAGE0=""
-if [ "$MODE" = native ] || [ "$BUILD_TRIPLE" = x86_64-unknown-linux-gnu ]; then
+if [ "$MODE" = mavericks ] || [ "$BUILD_TRIPLE" = x86_64-unknown-linux-gnu ]; then
   STAGE0="$(sh "$HERE/fetch-stage0.sh" "$CLANGDIR" "$RECAULK_A")"
 fi
 linux_host_compilers "$CLANGDIR"
@@ -48,7 +48,7 @@ pin_linux_build_sdk "$BUILD_TRIPLE" "$SDK"
 CMAKE_BIN="$(cmake_shim_dir "$WORK/cmake-bin")"
 
 # platform: stage0's std takes 10.9 libSystem's 512 KiB main stack, so on-box bootstrap overflows unless Recaulk's pthread_get_stacksize_np is loaded
-[ "$MODE" != native ] || { RUSTFLAGS_BOOTSTRAP="-C link-arg=-Wl,-force_load,$RECAULK_A"; export RUSTFLAGS_BOOTSTRAP; }
+[ "$MODE" != mavericks ] || { RUSTFLAGS_BOOTSTRAP="-C link-arg=-Wl,-force_load,$RECAULK_A"; export RUSTFLAGS_BOOTSTRAP; }
 
 # platform: the cmake crate (which bootstrap drives LLVM through) reads
 #           CMAKE_TOOLCHAIN_FILE_<target, dashes as underscores> before CMAKE_TOOLCHAIN_FILE

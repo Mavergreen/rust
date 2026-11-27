@@ -2,7 +2,7 @@
 # platform: host-agnostic
 #   usage: darwin-xhost-prebuild-test.sh
 #          Runs build-native.sh and build-cross.sh as an Apple Silicon Mac would (uname Darwin arm64,
-#          mavericks_mode cross), with shipyard's fetches and x.py stubbed, up to x.py, and checks what
+#          mavericks_mode modern), with shipyard's fetches and x.py stubbed, up to x.py, and checks what
 #          x.py would get: an aarch64 build triple, no stage0, no Linux-only toml or environment.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
@@ -26,7 +26,7 @@ stub "$t/bin/python3" '{ echo "args=$*"; echo "SDKROOT=${SDKROOT-unset}"
   echo "CMAKE=$CMAKE"; } > "$CAPTURE"; cp bootstrap.toml "$CAPTURE.toml"; exit 3'
 for b in clang clang++ llvm-ar llvm-ranlib llvm-otool llvm-nm llvm-strings llvm-install-name-tool; do stub "$t/c22/bin/$b" 'exit 0'; done
 stub "$t/c22/bin/llvm-lipo" 'echo "Non-fat file: $2 is architecture: x86_64"'
-stub "$t/sy/mavericks_mode.sh" 'echo cross'
+stub "$t/sy/mavericks_mode.sh" 'echo modern'
 stub "$t/sy/fetch_clang22.sh" "echo '$t/c22'"
 stub "$t/sy/fetch_sdk.sh" "case \"\$*\" in *arm64*) echo '$t/sdk-arm64' ;; *) echo '$t/sdk' ;; esac"
 stub "$t/sy/fetch_product_pkg.sh" 'mkdir -p "$3/lib" "$3/bin"; : > "$3/lib/librecaulk.a"; printf "#!/bin/sh\n" > "$3/bin/make"; chmod +x "$3/bin/make"; echo "$3"'
