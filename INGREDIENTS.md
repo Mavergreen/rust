@@ -170,6 +170,10 @@ publishes checksums → no hand-maintained hash; a Renovate bump only moves the 
 `.sha256` is absent. The stage0 (the official prebuilt of the same version: x86_64-apple-darwin on
 10.9, x86_64-unknown-linux-gnu on Linux) is verified the same way.
 
+## Versioning
+
+- port
+
 ## Declared state
 
 - upstream: UPSTREAM_VERSION

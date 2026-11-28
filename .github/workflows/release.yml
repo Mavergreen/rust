@@ -31,6 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.full }}
       publish: ${{ steps.ver.outputs.release }}
+      mode: ${{ steps.ver.outputs.mode }}
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0, persist-credentials: false }
@@ -45,10 +46,8 @@ jobs:
         run: |
           set -eu
           mode="$(sh "$SHIPYARD_SCRIPTS/release-mode.sh")"
-          out="$(sh build/version.sh "$mode")"
-          full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
-          rel="$(printf '%s\n' "$out" | sed -n 's/^RELEASE=//p')"
-          [ -n "$full" ] || { echo "::error::version.sh gave no FULL= line: $out"; exit 1; }
+          full="$(sh "$SHIPYARD_SCRIPTS/release-version.sh" --product rust --mode "$mode")"
+          if [ "$mode" = local ] || [ -z "$(git tag --list "$full")" ]; then rel=yes; else rel=no; fi
           case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
             push:refs/heads/main) : ;;
             workflow_dispatch:refs/heads/main)
@@ -57,15 +56,32 @@ jobs:
                 answer="$(sh "$SHIPYARD_SCRIPTS/release-needed.sh" --digest "$digest" --version "$full" --repo "$GITHUB_REPOSITORY")"
                 echo "release-needed: $answer"
                 if [ "$answer" = PUBLISH ]; then
-                  out="$(sh build/version.sh local)"
-                  full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
+                  mode=local
+                  full="$(sh "$SHIPYARD_SCRIPTS/release-version.sh" --product rust --mode "$mode")"
                   rel=yes
                 fi
               fi ;;
             *) rel=no ;;
           esac
-          { echo "full=$full"; echo "release=$rel"; } >> "$GITHUB_OUTPUT"
-          echo "version=$full publish=$rel"
+          { echo "full=$full"; echo "release=$rel"; echo "mode=$mode"; } >> "$GITHUB_OUTPUT"
+          echo "version=$full publish=$rel mode=$mode"
+
+  # spec: shipyard SKILL.md "Versioning" -- every macOS job and publish need this check of ver's version
+  version-check:
+    needs: ver
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: The version follows the declared scheme, with its notes when publishing
+        run: |
+          set -eu
+          sh "$SHIPYARD_SCRIPTS/check-release-version.sh" --product rust --mode "${{ needs.ver.outputs.mode }}" \
+            --version "${{ needs.ver.outputs.version }}" --sha "$GITHUB_SHA" \
+            --publishing ${{ needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main' && 'yes' || 'no' }}
 
   build-native:
     needs: ver
@@ -323,7 +339,7 @@ jobs:
   # spec: .superpowers/plans/2026-10-24-macos-runner-exit/06-rust-and-codex-cli.md D9 (shipyard) -- the one macOS job: the
   #       rust-cross pkg's arm64 rustc and cargo run on Apple Silicon, holding no key
   modern-smoke:
-    needs: [ver, build-cross]
+    needs: [ver, version-check, build-cross]
     if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 60
@@ -457,11 +473,15 @@ jobs:
     secrets: { SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_PRIVATE_KEY }}" }
 
   publish:
-    needs: [ver, collect, scan, vm-test, modern-smoke]
+    needs: [ver, version-check, collect, scan, vm-test, modern-smoke]
     if: needs.ver.outputs.publish == 'yes' && github.ref == 'refs/heads/main'
     permissions: { contents: write }
     uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
-    with: { version: "${{ needs.ver.outputs.version }}", artifact: mavergreen-rust }
+    with:
+      version: "${{ needs.ver.outputs.version }}"
+      product: rust
+      release-mode: "${{ needs.ver.outputs.mode }}"
+      artifact: mavergreen-rust
 
   retry:
     needs: [ver, publish]
@@ -473,7 +493,7 @@ jobs:
   required:
     name: required (release)
     if: always()
-    needs: [ver, build-native, build-cross, build-linux, modern-smoke, collect, vm-test, scan, publish, retry]
+    needs: [ver, version-check, build-native, build-cross, build-linux, modern-smoke, collect, vm-test, scan, publish, retry]
     runs-on: ubuntu-latest
     steps:
       - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
